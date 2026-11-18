@@ -1,0 +1,5 @@
+id,nombre,clave_hash,rol
+1,Janet,pbkdf2_sha256$200000$sHMlz3/HK7X+DLCioRF/Vw==$v/jCSl88x/1yGPIMEwqADO+or+J8w/Mn4PAnM2Cxcss=,operador
+2,Jose,pbkdf2_sha256$200000$i2E+axHSV1XTMcN1xPXF/A==$d4v0400TqZQn0jaDaJpOr3B00XfEy+w8gzf0lpJ9QvI=,operador
+3,Camilo,pbkdf2_sha256$200000$trKtpYqERRlo7R12v3I8ZA==$2Lvwlx48lpmpfCAsIDl3JtAC/szXXrbCK6owGMDmLy4=,administrador
+4,David,pbkdf2_sha256$200000$x6FWGXxhNlqxnutpq5Az1w==$pxkT+b1ivkZHeMeyCLkSyP+ewub1VP1hjXJIdYDrFHQ=,operador

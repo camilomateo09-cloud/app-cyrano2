@@ -1,0 +1,1275 @@
+:root {
+  color-scheme: light;
+  font-family: Arial, Helvetica, sans-serif;
+  background: #f4f7fb;
+  color: #14213d;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: linear-gradient(135deg, #f4f7fb, #e8eefc);
+  overflow-x: hidden; /* ningún elemento debe provocar scroll horizontal */
+}
+
+.app-shell {
+  max-width: 68.75rem; /* 1100px en escritorio */
+  width: 100%;
+  margin: 0 auto;
+  padding: clamp(0.75rem, 3vw, 1.25rem); /* menos margen en pantalla chica */
+  box-sizing: border-box;
+}
+
+.hero,
+.card,
+.panel {
+  background: white;
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: 0 10px 30px rgba(20, 33, 61, 0.08);
+  margin-bottom: 16px;
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.user-badge {
+  background: #1f4fcf;
+  color: white;
+  padding: 12px 16px;
+  border-radius: 999px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+input,
+select,
+textarea,
+button {
+  font-size: 1rem; /* 16px: evita el zoom automático de iOS/Android al enfocar */
+  padding: 0.75rem;
+  min-height: 2.75rem; /* ~44px: objetivo táctil cómodo para el dedo */
+  border-radius: 0.625rem;
+  border: 1px solid #ced4e0;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0.5rem;
+  font-family: inherit;
+}
+
+/* Las casillas no deben estirarse a todo el ancho ni tener alto mínimo de campo. */
+input[type="checkbox"] {
+  width: 1.25rem;
+  height: 1.25rem;
+  min-height: 0;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+button {
+  cursor: pointer;
+  background: #1f4fcf;
+  color: white;
+  border: none;
+  font-weight: bold;
+  min-height: 2.75rem;
+  touch-action: manipulation; /* elimina el retardo de 300ms al tocar */
+}
+
+button.secondary {
+  background: #6c757d;
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.tab {
+  background: #e9eefc;
+  color: #14213d;
+}
+
+.tab.active {
+  background: #1f4fcf;
+  color: white;
+}
+
+.panel {
+  display: none;
+}
+
+.panel.active {
+  display: block;
+}
+
+.result-card {
+  padding: 14px;
+  margin-top: 10px;
+  border: 1px solid #dce5f3;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.actions,
+.entry-actions,
+.search-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.product-list button {
+  margin-top: 8px;
+  text-align: left;
+  background: #f3f6ff;
+  color: #14213d;
+}
+
+.pending-list {
+  margin-bottom: 12px;
+  color: #1f4fcf;
+}
+
+.table-wrap {
+  /* En anchos intermedios la tabla puede desbordar: scroll horizontal contenido
+     aquí (no en el body). En pantalla muy chica se transforma en tarjetas. */
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.625rem;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.625rem;
+  border-bottom: 1px solid #e8edf8;
+}
+
+.label-page {
+  padding: 20px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.label-card {
+  border: 1px solid #14213d;
+  padding: 12px;
+  text-align: center;
+}
+
+.preview-container {
+  margin-top: 16px;
+  border: 1px solid #dce5f3;
+  border-radius: 12px;
+  padding: 12px;
+  background: #f8fbff;
+}
+
+.preview-sheet {
+  width: 100%;
+  max-width: 794px;
+  margin: 0 auto;
+  background: white;
+  border: 1px solid #14213d;
+  padding: 20px;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.preview-card {
+  border: 1px solid #14213d;
+  padding: 10px;
+  text-align: center;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+}
+
+.action-link {
+  color: #1f4fcf;
+  background: transparent;
+  border: none;
+  padding: 0;
+  width: auto;
+  text-align: left;
+  font-weight: bold;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.trash-button {
+  background: #d62828;
+  color: white;
+  border: none;
+  border-radius: 999px;
+  padding: 0.5rem 0.875rem;
+  width: auto;
+  min-height: 2.5rem; /* táctil pero compacto dentro de la fila */
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.autocomplete {
+  position: relative;
+}
+
+.autocomplete-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: white;
+  border: 1px solid #ced4e0;
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(20, 33, 61, 0.15);
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.autocomplete-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid #eef2fb;
+  transition: background 0.12s ease;
+}
+
+.autocomplete-item:last-child {
+  border-bottom: none;
+}
+
+.autocomplete-item:hover,
+.autocomplete-item.active {
+  background: #eef3ff;
+}
+
+.autocomplete-item .item-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.autocomplete-item .item-title {
+  font-weight: bold;
+  color: #14213d;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.autocomplete-item .item-sub {
+  font-size: 13px;
+  color: #5a6478;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.badge {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: bold;
+  padding: 4px 10px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.badge-producto {
+  background: #1f4fcf;
+  color: white;
+}
+
+.badge-proveedor {
+  background: #e9eefc;
+  color: #1f4fcf;
+}
+
+.autocomplete-empty {
+  padding: 12px 14px;
+  color: #5a6478;
+}
+
+.admin-filters {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.admin-filters select,
+.admin-filters button {
+  width: auto;
+  min-width: 180px;
+}
+
+/* ---------- Control de calidad (QC) ---------- */
+.qc-section {
+  width: 100%;
+  flex: 1 0 100%; /* ocupa su propia fila dentro de .actions (flex) */
+  margin-top: 0.5rem;
+  padding: 1rem;
+  border: 1px solid #dce5f3;
+  border-radius: 0.75rem;
+  background: #f8fbff;
+  box-sizing: border-box;
+}
+
+.qc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.qc-header h3 {
+  margin: 0;
+  color: #14213d;
+}
+
+.qc-checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.qc-checks .checkbox-row {
+  margin-bottom: 0;
+}
+
+/* Semáforo QC: círculo verde/amarillo/rojo. */
+.semaforo {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  border: 1px solid rgba(20, 33, 61, 0.15);
+}
+
+.semaforo-aprobado {
+  background: #2e9e5b;
+  box-shadow: 0 0 0 3px rgba(46, 158, 91, 0.2);
+}
+
+.semaforo-cuarentena {
+  background: #f4b400;
+  box-shadow: 0 0 0 3px rgba(244, 180, 0, 0.2);
+}
+
+.semaforo-rechazado {
+  background: #d62828;
+  box-shadow: 0 0 0 3px rgba(214, 40, 40, 0.2);
+}
+
+.semaforo-vacio {
+  background: #ced4e0;
+}
+
+/* Badge de estado QC en la tabla / trazabilidad (semáforo + texto). */
+.qc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: bold;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.qc-badge::before {
+  content: "";
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.qc-aprobado {
+  background: #e5f4ec;
+  color: #1e7d47;
+}
+
+.qc-cuarentena {
+  background: #fdf3d6;
+  color: #9a7400;
+}
+
+.qc-rechazado {
+  background: #fbe3e3;
+  color: #b31e1e;
+}
+
+.qc-sin {
+  background: #eef2fb;
+  color: #5a6478;
+}
+
+/* ---------- Impresión ZPL (Zebra) ---------- */
+.print-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+  margin-bottom: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #dce5f3;
+  border-radius: 0.75rem;
+  background: #f8fbff;
+}
+
+.print-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.print-controls-row input {
+  width: 5.5rem;
+  margin-top: 0;
+}
+
+.print-controls .checkbox-row {
+  margin-bottom: 0;
+}
+
+.printer-config {
+  font-size: 0.8rem;
+  color: #5a6478;
+}
+
+.print-button {
+  background: #14213d;
+  color: white;
+  border: none;
+  border-radius: 999px;
+  padding: 0.5rem 0.875rem;
+  width: auto;
+  min-height: 2.5rem;
+  font-size: 0.875rem;
+  white-space: nowrap;
+  margin-right: 0.4rem;
+}
+
+#zplPreview pre {
+  margin: 0.5rem 0 0;
+  padding: 0.75rem;
+  background: #14213d;
+  color: #e9eefc;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  font-family: "Courier New", monospace;
+  font-size: 0.8rem;
+  white-space: pre;
+}
+
+/* ---------- Tablet / pantallas medianas ---------- */
+@media (max-width: 768px) {
+  .tabs {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .hero {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .user-badge {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .admin-filters select,
+  .admin-filters button {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+/* ---------- Tablet pequeña (Honeywell EDA52 ~5", 360-420px) ---------- */
+@media (max-width: 640px) {
+  .tabs {
+    grid-template-columns: 1fr; /* una acción principal por fila */
+  }
+
+  /* Controles agrupados: apilados y a todo el ancho para no tocar por error. */
+  .actions,
+  .entry-actions,
+  .search-row,
+  .admin-filters {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .hero,
+  .card,
+  .panel {
+    padding: 1rem;
+    border-radius: 0.875rem;
+  }
+
+  /* La tabla de ingresos se transforma en tarjetas apiladas (sin scroll lateral). */
+  .table-wrap {
+    overflow-x: visible;
+  }
+
+  .entries-table thead {
+    display: none; /* los encabezados pasan a cada celda vía data-label */
+  }
+
+  .entries-table,
+  .entries-table tbody,
+  .entries-table tr,
+  .entries-table td {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .entries-table tr {
+    border: 1px solid #e3e9f5;
+    border-radius: 0.75rem;
+    background: #fbfcff;
+    padding: 0.25rem 0.875rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .entries-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    text-align: right;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid #eef2fb;
+  }
+
+  .entries-table td:last-child {
+    border-bottom: none;
+  }
+
+  /* Etiqueta del campo a la izquierda de cada dato dentro de la tarjeta. */
+  .entries-table td::before {
+    content: attr(data-label);
+    font-weight: bold;
+    color: #14213d;
+    text-align: left;
+    flex-shrink: 0;
+  }
+
+  .trash-button {
+    width: 100%; /* botón de eliminar cómodo en la tarjeta */
+  }
+
+  /* Etiquetas de impresión y su vista previa: una sola columna. */
+  .label-page,
+  .preview-sheet {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* ---------- P01 · Mensajes y respuesta del sistema ---------- */
+/* Zona fija de mensajes: queda pegada arriba al desplazarse (EDA52, 720 px de alto). */
+.status-bar {
+  position: sticky;
+  top: 0.5rem;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem 0.75rem 0.625rem 1rem;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  border-left: 6px solid;
+  font-weight: bold;
+  font-size: 1.05rem;
+  line-height: 1.35;
+  box-shadow: 0 6px 18px rgba(20, 33, 61, 0.18);
+}
+.status-icon { font-size: 1.3rem; flex-shrink: 0; }
+.status-text { flex: 1; }
+.status-close {
+  width: auto;
+  min-width: 2.75rem;
+  margin: 0;
+  padding: 0.25rem;
+  background: transparent;
+  color: inherit;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+.status-ok    { background: #e6f4ea; color: #14532d; border-color: #1e7b34; }
+.status-error { background: #fde8e8; color: #8a1c1c; border-color: #c62828; }
+.status-warn  { background: #fff4d6; color: #5c3f00; border-color: #d49b00; }
+.status-info,
+.status-busy  { background: #e8eefc; color: #14213d; border-color: #1f4fcf; }
+
+/* Campo que falta o está mal: borde rojo grueso y fondo suave. */
+.invalid {
+  border: 2px solid #c62828 !important;
+  background: #fff7f7;
+}
+
+/* Botón ocupado (buscando / guardando): se ve bloqueado. */
+button:disabled {
+  opacity: 0.65;
+  cursor: progress;
+}
+
+/* Al escanear, la pantalla baja hasta el producto sin quedar bajo la barra de mensajes. */
+.result-card { scroll-margin-top: 7rem; }
+.result-card.found {
+  border: 2px solid #1f4fcf;
+  background: #eef3ff;
+  animation: p01-flash 1.2s ease-out;
+}
+@keyframes p01-flash {
+  0%   { box-shadow: 0 0 0 6px rgba(31, 79, 207, 0.45); }
+  100% { box-shadow: 0 0 0 0 rgba(31, 79, 207, 0); }
+}
+.product-code {
+  display: inline-block;
+  background: #1f4fcf;
+  color: white;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-weight: bold;
+  font-size: 0.95rem;
+}
+.product-name {
+  font-size: 1.375rem;
+  font-weight: bold;
+  line-height: 1.25;
+  margin: 0.375rem 0 0.5rem;
+}
+.product-meta { margin: 0.25rem 0; }
+
+/* Código no encontrado: muestra el código leído y qué hacer. */
+.result-card.not-found {
+  border: 2px solid #c62828;
+  background: #fff7f7;
+}
+.not-found-title { font-size: 1.2rem; font-weight: bold; color: #8a1c1c; margin: 0 0 0.375rem; }
+.not-found-code {
+  font-family: "Courier New", monospace;
+  font-size: 1.1rem;
+  word-break: break-all;
+}
+.not-found-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.not-found-help { font-size: 0.95rem; color: #3d4a63; margin-bottom: 0; }
+@media (max-width: 380px) {
+  .not-found-actions { grid-template-columns: 1fr; }
+}
+
+
+/* ---------- P05 · Cantidad, unidad y conversión ---------- */
+.qty-row {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+.qty-row input { flex: 1; font-size: 1.25rem; font-weight: bold; }
+.qty-unit {
+  display: flex;
+  align-items: center;
+  margin-top: 0.5rem;
+  padding: 0 0.875rem;
+  min-width: 5.5rem;
+  justify-content: center;
+  border-radius: 0.625rem;
+  background: #e8eefc;
+  color: #14213d;
+  font-weight: bold;
+  font-size: 1.05rem;
+}
+.conversion-line {
+  flex: 1 0 100%;
+  margin: 0.375rem 0 0.25rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  background: #f3f6fb;
+  color: #3d4a63;
+  font-size: 1rem;
+}
+.conversion-line.has-value {
+  background: #e6f4ea;
+  color: #14532d;
+}
+.conversion-line strong { font-size: 1.2rem; }
+.conversion-detail { display: block; font-size: 0.9rem; font-weight: normal; }
+
+
+/* ---------- P06 · No perder trabajo ---------- */
+.user-badge {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 6px 6px 6px 16px;
+}
+.user-info { display: flex; flex-direction: column; gap: 2px; }
+.icon-button {
+  width: 2.75rem;
+  min-width: 2.75rem;
+  height: 2.75rem;
+  margin: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+}
+.icon-button:focus-visible { outline: 3px solid #ffd166; outline-offset: 2px; }
+
+.app-dialog {
+  width: min(26rem, calc(100vw - 2rem));
+  border: none;
+  border-radius: 16px;
+  padding: 1.25rem;
+  box-shadow: 0 20px 50px rgba(20, 33, 61, 0.35);
+  color: #14213d;
+}
+.app-dialog::backdrop { background: rgba(20, 33, 61, 0.55); }
+.dialog-title { font-size: 1.2rem; font-weight: bold; margin: 0 0 0.5rem; }
+.dialog-text { margin: 0 0 1rem; line-height: 1.4; }
+.dialog-actions { display: grid; gap: 10px; }
+.dialog-actions button { margin: 0; }
+.dialog-actions button.link {
+  background: transparent;
+  color: #1f4fcf;
+  text-decoration: underline;
+}
+
+
+/* ---------- P14 · Aviso sin conexión ---------- */
+/* La barra de mensajes y el aviso de conexión van juntos, pegados arriba. */
+.top-alerts {
+  position: sticky;
+  top: 0.5rem;
+  z-index: 50;
+}
+.top-alerts .status-bar { position: static; }
+.offline-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem 0.625rem 0.625rem 0.875rem;
+  margin-bottom: 8px;
+  border-radius: 12px;
+  background: #3b1d1d;
+  color: #ffffff;
+  box-shadow: 0 6px 18px rgba(20, 33, 61, 0.25);
+}
+.offline-icon { flex-shrink: 0; color: #ffb4a8; }
+.offline-text { flex: 1; display: flex; flex-direction: column; gap: 2px; line-height: 1.3; }
+.offline-text strong { font-size: 1.1rem; }
+.offline-text span { font-size: 0.95rem; }
+.retry-button {
+  width: auto;
+  margin: 0;
+  padding: 0.5rem 0.875rem;
+  background: #ffffff;
+  color: #3b1d1d;
+}
+
+
+/* ---------- P02 · Recepción como unidad ---------- */
+.reception-card h2 { margin-top: 0; }
+.doc-row { display: grid; grid-template-columns: minmax(7.5rem, 40%) 1fr; gap: 0.5rem; }
+.reception-card.is-open { border: 2px solid #1e7b34; }
+.reception-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.reception-tag {
+  background: #1e7b34;
+  color: white;
+  font-weight: bold;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.9rem;
+}
+.reception-counts { font-size: 0.95rem; color: #3d4a63; }
+.reception-provider { font-size: 1.2rem; font-weight: bold; margin: 0.5rem 0 0.125rem; line-height: 1.25; }
+.reception-doc { margin: 0 0 0.625rem; color: #3d4a63; }
+.reception-times {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  text-align: center;
+  background: #f3f6fb;
+  border-radius: 10px;
+  padding: 0.5rem;
+}
+.reception-times strong { display: block; font-size: 1.2rem; }
+.time-label { font-size: 0.8rem; color: #3d4a63; }
+.time-auto { font-size: 0.75rem; color: #5c3f00; display: block; }
+.reception-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+/* Sin recepción abierta no se muestran los formularios de productos. */
+.need-reception { display: none; }
+.no-reception .need-reception {
+  display: block;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: #fff4d6;
+  color: #5c3f00;
+  font-weight: bold;
+}
+.no-reception #scannerPanel > :not(h2):not(.need-reception),
+.no-reception #providerPanel > :not(h2):not(.need-reception) { display: none !important; }
+
+
+/* ---------- P03 · Exportar a Excel ---------- */
+.export-box {
+  border: 1px solid #ced4e0;
+  border-radius: 12px;
+  padding: 0.75rem 0.875rem;
+  margin-bottom: 1rem;
+  background: #f8fbff;
+}
+.export-box h3 { margin: 0 0 0.25rem; }
+.export-help { margin: 0 0 0.5rem; font-size: 0.95rem; color: #3d4a63; }
+.export-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.625rem; }
+.export-row input { min-width: 0; }
+
+
+/* ---------- P20 · Validación ---------- */
+.lote-input { text-transform: uppercase; letter-spacing: 0.02em; }
+.lote-input::placeholder { text-transform: none; letter-spacing: normal; }
+input[type="checkbox"].invalid {
+  outline: 3px solid #c62828;
+  outline-offset: 2px;
+}
+
+/* ---------- P22 · Anular en vez de borrar ---------- */
+.void-button {
+  width: auto;
+  background: #ffffff;
+  color: #8a1c1c;
+  border: 1px solid #c62828;
+  padding: 0.5rem 0.875rem;
+}
+.entries-table tr.is-voided td:not([data-label="Acción"]):not([data-label="QC"]) {
+  color: #8a8a8a;
+  text-decoration: line-through;
+}
+.voided-note { font-size: 0.9rem; color: #5c3f00; }
+.qc-badge.qc-anulado { background: #e2e5ea; color: #3d4a63; }
+.entries-table tr.is-pending { background: #fffbea; }
+.dialog-field { margin-bottom: 0.75rem; }
+.dialog-field label { font-weight: bold; }
+.dialog-field-error { color: #8a1c1c; font-weight: bold; margin: 0.25rem 0 0; min-height: 1.2em; }
+.audit-list { padding-left: 1.1rem; }
+.audit-list li { margin-bottom: 0.25rem; }
+
+/* ---------- P23 · Código SAP ---------- */
+.sap-pendiente { color: #5c3f00; font-style: italic; }
+
+/* ---------- P04 · Pantalla única y compacta ---------- */
+.sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0);
+  white-space: nowrap; border: 0;
+}
+
+/* Encabezado de una línea */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: #14213d;
+  color: #ffffff;
+  border-radius: 12px;
+  padding: 0.375rem 0.375rem 0.375rem 0.875rem;
+  margin-bottom: 10px;
+  min-height: 3rem;
+}
+.brand { display: flex; align-items: baseline; gap: 0.5rem; }
+.brand strong { font-size: 1.15rem; }
+.brand-sub { font-size: 0.9rem; opacity: 0.85; }
+.topbar .user-badge {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+.topbar .user-badge.hidden { display: none !important; }
+.user-name { font-weight: bold; }
+
+/* Recepción abierta en una barra corta */
+.reception-card { padding: 0.75rem 0.875rem; margin-bottom: 10px; }
+.reception-line { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+.reception-line .reception-provider {
+  font-size: 1.05rem;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reception-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  font-size: 0.9rem;
+  color: #3d4a63;
+  margin: 0.25rem 0 0.5rem;
+}
+.reception-card .reception-actions { gap: 8px; }
+.reception-card .reception-actions button { min-height: 2.5rem; padding: 0.5rem; margin: 0; font-size: 0.95rem; }
+
+/* Botones: uno principal lleno por pantalla; los demás con borde (U14) */
+.btn-outline {
+  background: #ffffff;
+  color: #1f4fcf;
+  border: 1.5px solid #1f4fcf;
+}
+.btn-primary {
+  background: #1f4fcf;
+  color: #ffffff;
+  font-size: 1.1rem;
+  min-height: 3.25rem;
+  margin: 0;
+}
+.link-danger {
+  width: auto;
+  min-height: 2.75rem;
+  margin: 0;
+  padding: 0 0.5rem;
+  background: transparent;
+  color: #8a1c1c;
+  text-decoration: underline;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+/* Pestañas en una sola fila */
+.tabs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-columns: none;
+  grid-auto-columns: 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.tabs .tab { margin: 0; min-height: 2.75rem; }
+#scannerPanel.panel { padding: 0.875rem; }
+
+/* Un solo campo para escanear o buscar por nombre */
+.scan-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
+.scan-row input { margin-top: 0; font-size: 1.1rem; }
+.scan-row .btn-outline { width: auto; margin: 0; padding: 0 1rem; }
+.scan-row .autocomplete { position: relative; }
+
+/* Tarjeta del producto: el nombre manda */
+#scannerResult.result-card { margin-top: 10px; padding: 0.625rem 0.75rem; }
+#scannerResult .product-name { font-size: 1.3rem; margin: 0.25rem 0 0.25rem; }
+#scannerResult .product-meta { margin: 0.125rem 0; font-size: 0.95rem; color: #3d4a63; }
+
+/* Formulario compacto */
+.product-form { margin-top: 0.5rem; }
+.product-form label { display: block; margin-top: 0.5rem; font-weight: bold; font-size: 0.95rem; }
+.form-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.form-grid input { min-width: 0; }
+.form-grid .qty-unit { min-width: 0; padding: 0 0.5rem; font-size: 0.95rem; }
+.product-form .conversion-line { margin: 0.375rem 0 0; padding: 0.375rem 0.625rem; font-size: 0.95rem; }
+.product-form .qc-section { margin-top: 0.625rem; padding: 0.625rem 0.75rem; }
+.field-label { font-weight: bold; }
+
+/* Estado de calidad: tres botones, un toque */
+.segmented { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 0.375rem; border-radius: 12px; }
+.segmented .seg {
+  margin: 0;
+  min-height: 2.75rem;
+  padding: 0.25rem;
+  background: #ffffff;
+  color: #14213d;
+  border: 1.5px solid #8a94a6;
+  font-size: 0.95rem;
+}
+.segmented .seg.is-on.seg-aprobado { background: #1e7b34; border-color: #1e7b34; color: #fff; }
+.segmented .seg.is-on.seg-cuarentena { background: #b07800; border-color: #b07800; color: #fff; }
+.segmented .seg.is-on.seg-rechazado { background: #c62828; border-color: #c62828; color: #fff; }
+.segmented.invalid { outline: 3px solid #c62828; outline-offset: 2px; border: none !important; background: transparent; }
+.qc-details { margin-top: 0.5rem; }
+.qc-details summary {
+  cursor: pointer;
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  font-weight: bold;
+  color: #1f4fcf;
+}
+
+/* Pendientes de la recepción, en la misma pantalla */
+.pending-section { margin-top: 1rem; border-top: 1px solid #e3e9f5; padding-top: 0.5rem; }
+.pending-head { display: flex; align-items: center; justify-content: space-between; }
+.pending-head h3 { margin: 0.25rem 0; font-size: 1.05rem; }
+.pending-count {
+  background: #fff4d6; color: #5c3f00; font-weight: bold;
+  border-radius: 999px; padding: 2px 10px;
+}
+.pending-cards { list-style: none; padding: 0; margin: 0.25rem 0 0; }
+.pending-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  padding: 0.5rem 0.625rem; margin-bottom: 6px;
+  background: #fffbea; border: 1px solid #f0e2b0; border-radius: 10px;
+}
+.pending-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pending-text strong { font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pending-text span { font-size: 0.85rem; color: #3d4a63; }
+
+/* Acción principal fija abajo */
+.action-bar {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 60;
+  padding: 0.5rem 0.75rem calc(0.5rem + env(safe-area-inset-bottom));
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 -6px 18px rgba(20, 33, 61, 0.15);
+}
+.action-bar.hidden { display: none !important; }
+.action-bar .btn-primary { max-width: 68.75rem; margin: 0 auto; display: block; }
+body.has-action-bar .app-shell { padding-bottom: 5.5rem; }
+
+/* Diálogo: respeta los saltos de línea del resumen */
+.dialog-text { white-space: pre-line; max-height: 50vh; overflow-y: auto; }
+/* P04 · ajuste fino para que todo quepa en 360 × 720 */
+#scannerResult .product-name { font-size: 1.2rem; line-height: 1.2; margin: 0 0 0.25rem; }
+#scannerResult .product-meta { font-size: 0.9rem; line-height: 1.35; }
+#scannerResult .product-code { font-size: 0.85rem; padding: 1px 6px; margin-right: 4px; }
+.reception-card { padding: 0.625rem 0.75rem; }
+.reception-meta { font-size: 0.85rem; margin: 0.125rem 0 0.375rem; }
+.reception-card .reception-actions button { min-height: 2.75rem; padding: 0.25rem 0.5rem; }
+.product-form .qc-section { margin-top: 0.5rem; padding: 0.5rem 0.625rem; }
+.product-form input, .product-form textarea { margin-top: 0.25rem; }
+.product-form label { margin-top: 0.375rem; }
+
+/* ---------- P07 · Lista, confirmar y editar ---------- */
+.action-row { display: flex; gap: 8px; max-width: 68.75rem; margin: 0 auto; }
+.action-row .btn-primary { flex: 1; }
+.action-row .btn-outline { width: auto; margin: 0; min-height: 3.25rem; padding: 0 1rem; }
+.action-row .hidden { display: none !important; }
+.small-button { width: auto; min-height: 2.5rem; margin: 0; padding: 0.25rem 0.75rem; font-size: 0.9rem; }
+.status-action {
+  width: auto; margin: 0; min-height: 2.5rem; padding: 0.25rem 0.75rem;
+  background: #ffffff; color: #14532d; border: 1.5px solid currentColor; font-size: 0.95rem;
+}
+.status-action.hidden { display: none !important; }
+.pending-badge {
+  display: inline-block;
+  background: #fff4d6; color: #5c3f00; border: 1px solid #d49b00;
+  border-radius: 999px; padding: 1px 8px; font-size: 0.8rem; font-weight: bold; margin-right: 4px;
+}
+.confirm-box {
+  background: #fffbea; border: 1.5px solid #d49b00; border-radius: 12px;
+  padding: 0.625rem 0.75rem; margin-bottom: 0.75rem;
+}
+.confirm-box p { margin: 0 0 0.5rem; }
+.editing-tag {
+  display: inline-block; background: #14213d; color: #fff; font-weight: bold; font-size: 0.8rem;
+  border-radius: 6px; padding: 2px 8px; margin-bottom: 4px;
+}
+.pending-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.tools-box { margin: 1rem 0; border: 1px solid #ced4e0; border-radius: 12px; padding: 0.25rem 0.875rem 0.75rem; }
+.tools-box summary { min-height: 2.75rem; display: flex; align-items: center; font-weight: bold; cursor: pointer; color: #1f4fcf; }
+
+/* Revisión en tabla antes de confirmar */
+.review-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; white-space: normal; }
+.review-table th, .review-table td { padding: 0.375rem 0.25rem; border-bottom: 1px solid #e3e9f5; vertical-align: top; text-align: left; }
+.review-table td.num { white-space: nowrap; }
+.review-table small { color: #3d4a63; }
+.review-table tfoot td { border-bottom: none; padding-top: 0.5rem; }
+.review-note { margin: 0.5rem 0 0; color: #3d4a63; }
+.entries-table td.c-acc .c-estado { margin-right: 6px; }
+.entries-table td.c-acc .c-botones { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+/* Lista de ingresos en el EDA52: tarjeta de 3 líneas (antes 11 filas, 482 px) */
+@media (max-width: 640px) {
+  .entries-table tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 8px;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+  .entries-table td {
+    display: inline;
+    width: auto;
+    padding: 0;
+    border: none;
+    text-align: left;
+    font-size: 0.88rem;
+    color: #3d4a63;
+  }
+  .entries-table td::before { content: none; }
+  .entries-table td.c-prod { flex-basis: 100%; font-weight: bold; font-size: 0.95rem; color: #14213d; }
+  .entries-table td.c-conv::before { content: "→ "; }
+  .entries-table td.c-lote::before { content: "· lote "; }
+  .entries-table td.c-cad::before { content: "· vence "; }
+  .entries-table td.c-acc {
+    flex-basis: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .entries-table td.c-bar { display: none; }
+  .entries-table .print-button, .entries-table .void-button { width: auto; min-height: 2.5rem; margin: 0; padding: 0.25rem 0.75rem; font-size: 0.9rem; }
+}
+@media (max-width: 640px) {
+  .entries-table td.c-acc { flex-wrap: nowrap; }
+  .entries-table td.c-acc .c-estado { display: inline-flex; flex-wrap: wrap; gap: 4px; margin: 0; }
+  .entries-table td.c-acc .c-botones { flex-wrap: nowrap; flex-shrink: 0; gap: 2px; }
+  .entries-table .pending-badge, .entries-table .qc-badge { font-size: 0.75rem; padding: 1px 6px; margin: 0; }
+  .entries-table .link-danger { padding: 0 0.375rem; min-height: 2.5rem; }
+}
+.dialog-text.is-html { white-space: normal; }
+.form-grid label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- P08 · Validaciones de uso ---------- */
+.field-hint { margin: 0.25rem 0 0; font-size: 0.88rem; color: #3d4a63; min-height: 1.1em; }
+.field-hint.hint-warn { color: #5c3f00; font-weight: bold; }
+.field-hint.hint-error { color: #8a1c1c; font-weight: bold; }
+.dialog-actions .choice-button { text-align: left; white-space: normal; line-height: 1.3; min-height: 3rem; }
+
+/* ---------- P09 · GS1-128 ---------- */
+.from-code { background: #eef7ee !important; border-color: #1e7b34 !important; }
+.from-code-note { margin: 0.25rem 0 0; font-size: 0.85rem; color: #14532d; font-weight: bold; }
+
+/* ================= P11 · Aspecto visual y accesibilidad ================= */
+/* Color con significado (U19): azul = acción · verde = guardado / aprobado ·
+   ámbar = aviso / pendiente · rojo = error / anular · azul marino = identidad y texto. */
+
+/* Bordes de campo con contraste 3:1 (FH 29): antes #ced4e0 = 1,49:1 */
+input, select, textarea { border: 1.5px solid #7d879a; }
+.qty-unit { border: 1.5px solid #7d879a; }
+
+/* Foco grueso y visible (U21): se ve en qué campo caerá la lectura del escáner */
+input:focus, select:focus, textarea:focus {
+  outline: 3px solid #1f4fcf;
+  outline-offset: 1px;
+  border-color: #1f4fcf;
+}
+#barcodeInput:focus { outline-width: 4px; background: #f3f7ff; }
+button:focus-visible, summary:focus-visible, .tab:focus-visible, a:focus-visible {
+  outline: 3px solid #14213d;
+  outline-offset: 2px;
+}
+.topbar .icon-button:focus-visible { outline-color: #ffd166; }
+button:disabled { opacity: 0.6; cursor: progress; filter: grayscale(0.4); }
+
+/* Casillas del checklist: fila completa tocable de 48 px (FH 26; antes 20 px) */
+.qc-checks { margin-top: 0.25rem; }
+.qc-checks .checkbox-row {
+  min-height: 3rem;
+  margin: 0;
+  padding: 0 0.5rem;
+  gap: 0.75rem;
+  border-bottom: 1px solid #e3e9f5;
+  cursor: pointer;
+  font-size: 1rem;
+}
+.qc-checks .checkbox-row:last-child { border-bottom: none; }
+.qc-checks input[type="checkbox"], .checkbox-row input[type="checkbox"] { width: 1.5rem; height: 1.5rem; accent-color: #1e7b34; }
+.checkbox-row { min-height: 2.75rem; margin-top: 0; }
+
+/* Insignias con contraste 4,5:1 (FH 28; antes Cuarentena 3,89:1) */
+.qc-cuarentena { color: #7a5c00; background: #fdf3d6; }
+.qc-aprobado { color: #1e6b3f; background: #e5f4ec; }
+.qc-rechazado { color: #a61b1b; background: #fbe3e3; }
+
+/* Semáforo con borde oscuro (FH 30): el estado también va escrito en los botones */
+.semaforo { border: 2px solid #14213d; box-shadow: none !important; }
+.semaforo-vacio { background: #ffffff; }
+.segmented .seg { border-color: #7d879a; }
+.segmented .seg.is-on.seg-cuarentena { background: #7a5c00; border-color: #7a5c00; }
+.segmented .seg.is-on.seg-rechazado { background: #b3261e; border-color: #b3261e; }
+
+/* Azul solo para acciones: la identidad y la selección van en azul marino; info en gris */
+.product-code, #scannerResult .product-code { background: #14213d; }
+#scannerResult.result-card.found { border-color: #14213d; background: #f3f6fb; }
+.status-info, .status-busy { background: #eef1f6; color: #14213d; border-color: #5a6478; }
+.pending-list { color: #3d4a63; }
+.user-badge { background: transparent; }
+
+/* Tamaños de letra (U20): ningún dato de trabajo bajo 14 px; el título de la app, pequeño */
+.brand strong { font-size: 1.05rem; }
+.pending-text span, .review-table, .reception-meta, #scannerResult .product-meta,
+#scannerResult .product-code, .time-auto, .export-help, .voided-note { font-size: 0.875rem; }
+.pending-badge, .qc-badge, .entries-table .pending-badge, .entries-table .qc-badge { font-size: 0.8125rem; }
+#scannerResult .product-name { font-size: 1.25rem; }
+
+/* Etiqueta pegada a su campo y separada del anterior (U15: 4 px con su campo, ≥ 10 px con el de arriba) */
+label { display: block; margin-top: 1rem; }
+label + input, label + select, label + textarea, label + .qty-row, label + .doc-row { margin-top: 0.25rem; }
+.product-form label { margin-top: 0.625rem; }
+.product-form label + input, .product-form label + .qty-row, .product-form .qty-row input { margin-top: 0.25rem; }
+.qc-checks label, label.checkbox-row { margin-top: 0; }
+.form-grid > div > label { margin-top: 0.5rem; }
+
+/* Íconos propios (U23) */
+.ico { width: 1.15em; height: 1.15em; vertical-align: -0.2em; flex-shrink: 0; }
+.status-icon .ico { width: 1.4rem; height: 1.4rem; }
+.product-form .qc-checks input[type="checkbox"], .qc-checks input[type="checkbox"] { margin: 0; }
+.product-form .qc-checks .checkbox-row { font-weight: normal; align-items: center; }
+.product-form .qc-checks .checkbox-row, .qc-checks .checkbox-row { display: flex; align-items: center; gap: 0.75rem; margin-top: 0; }

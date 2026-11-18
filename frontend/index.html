@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cyrano - Recepción de materia prima</title>
+    <link rel="stylesheet" href="/styles.css?v=20261117-p24" />
+    <!-- P14: librería de códigos de barras guardada en la app (antes se descargaba de internet). -->
+    <script src="/vendor/JsBarcode.all.min.js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <!-- P04: encabezado de una línea (antes ocupaba con las pestañas el 64 % de la pantalla del EDA52). -->
+      <header class="topbar">
+        <div class="brand"><strong>Cyrano</strong><span class="brand-sub">Recepción</span></div>
+        <div id="userBadge" class="user-badge hidden">
+          <span id="userName" class="user-name">--</span>
+          <span id="todayDate" class="sr-only">--</span>
+          <!-- P06: «Cerrar sesión» como ícono pequeño, lejos de las acciones, con aviso si hay pendientes. -->
+          <button id="logoutButton" class="icon-button" type="button" aria-label="Cerrar sesión" title="Cerrar sesión">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+              <path d="M12 3v8" />
+              <path d="M6.3 6.8a8 8 0 1 0 11.4 0" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- P01: zona fija de mensajes, visible en todas las pantallas (antes los avisos
+           se escribían en la pantalla de clave, que queda oculta al entrar). -->
+      <div id="topAlerts" class="top-alerts">
+        <!-- P14: aviso visible cuando no hay conexión con el servidor, con reintento. -->
+        <div id="offlineBanner" class="offline-banner hidden" role="alert">
+          <svg class="offline-icon" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+            <path d="M2 8.5a15 15 0 0 1 20 0" /><path d="M5.5 12a10 10 0 0 1 13 0" /><path d="M9 15.5a5 5 0 0 1 6 0" />
+            <circle cx="12" cy="19" r="1" fill="currentColor" /><path d="M3 3l18 18" />
+          </svg>
+          <div class="offline-text">
+            <strong>Sin conexión</strong>
+            <span id="offlineDetail">No hay conexión con el servidor.</span>
+          </div>
+          <button id="retryButton" type="button" class="retry-button">Reintentar</button>
+        </div>
+        <div id="statusBar" class="status-bar hidden" role="status" aria-live="polite">
+          <span id="statusIcon" class="status-icon" aria-hidden="true"></span>
+          <span id="statusText" class="status-text"></span>
+          <button id="statusAction" class="status-action hidden" type="button"></button>
+          <button id="statusClose" class="status-close" type="button" aria-label="Cerrar mensaje">×</button>
+        </div>
+      </div>
+
+      <section id="loginSection" class="card">
+        <h2>Ingreso de operador</h2>
+        <!-- P24: usuario + PIN de 6 números (el PIN se guarda con hash en el servidor). -->
+        <form id="loginForm" novalidate>
+          <label for="usuario">Usuario</label>
+          <input id="usuario" type="text" autocomplete="username" autocapitalize="words" spellcheck="false" placeholder="Tu nombre, ej. Jose" maxlength="60" />
+          <label for="clave">PIN</label>
+          <input id="clave" type="password" inputmode="numeric" autocomplete="current-password" placeholder="6 números" maxlength="64" />
+          <button id="loginButton" type="submit">Entrar</button>
+        </form>
+        <p id="loginMessage" class="message" role="alert"></p>
+      </section>
+
+      <section id="mainSection" class="hidden">
+        <!-- P02: la recepción (entrega del proveedor) es la unidad de trabajo. -->
+        <section id="receptionCard" class="card reception-card">
+          <div id="receptionNew">
+            <h2>Nueva recepción</h2>
+            <label for="recProveedor">Proveedor *</label>
+            <input id="recProveedor" type="text" list="recProveedores" autocomplete="off"
+                   placeholder="Escribe para buscar el proveedor" />
+            <datalist id="recProveedores"></datalist>
+            <label for="recDocNumero">Documento *</label>
+            <div class="doc-row">
+              <select id="recDocTipo" aria-label="Tipo de documento">
+                <option value="factura">Factura</option>
+                <option value="guia">Guía de remisión</option>
+              </select>
+              <input id="recDocNumero" type="text" placeholder="Número" autocomplete="off" />
+            </div>
+            <label for="recLlegada">Hora de llegada del camión *</label>
+            <input id="recLlegada" type="time" />
+            <button id="openReceptionButton" type="button">Abrir recepción</button>
+          </div>
+
+          <!-- P04: recepción abierta en una barra corta. -->
+          <div id="receptionOpen" class="hidden">
+            <div class="reception-line">
+              <span class="reception-tag">Abierta</span>
+              <strong id="recProveedorText" class="reception-provider"></strong>
+            </div>
+            <div class="reception-meta">
+              <span id="recDocText"></span>
+              <span>Llegó <b id="recLlegadaText">--:--</b></span>
+              <span>Descarga <b id="recInicioText">--:--</b></span>
+              <span class="hidden">Fin <b id="recFinText">--:--</b></span>
+            </div>
+            <div class="reception-actions">
+              <button id="startUnloadButton" type="button" class="btn-outline">Empezar descarga</button>
+              <button id="closeReceptionButton" type="button" class="btn-outline">Cerrar recepción</button>
+            </div>
+            <span id="recCounts" class="sr-only"></span>
+          </div>
+        </section>
+
+        <!-- P04: dos pestañas en una fila; agregar y confirmar están en la misma pantalla. -->
+        <nav class="tabs" aria-label="Secciones">
+          <button class="tab active" data-target="scannerPanel">Recibir</button>
+          <button class="tab" data-target="entriesPanel">Registrados</button>
+          <button class="tab hidden" id="adminTab" data-target="adminPanel">Administración</button>
+        </nav>
+
+        <section id="scannerPanel" class="panel active">
+          <p class="need-reception">Primero abre una recepción (arriba): proveedor, factura o guía y hora de llegada.</p>
+          <!-- P04 / U9: un solo campo para escanear o buscar por nombre (antes dos formularios). -->
+          <div class="scan-row">
+            <label for="barcodeInput" class="sr-only">Código de barras o nombre del producto</label>
+            <div class="autocomplete">
+              <input id="barcodeInput" type="text" autocomplete="off" spellcheck="false"
+                     placeholder="Escanea, o escribe código o nombre" />
+              <div id="autocompleteDropdown" class="autocomplete-dropdown hidden"></div>
+            </div>
+            <button id="searchBarcodeButton" type="button" class="btn-outline">Buscar</button>
+          </div>
+          <div id="scannerResult" class="result-card hidden"></div>
+
+          <div id="scannerActions" class="product-form hidden">
+            <div class="form-grid">
+              <div>
+                <!-- P05: cantidad vacía y obligatoria, con la unidad al lado y la conversión en vivo. -->
+                <label for="scannerQty" id="scannerQtyLabel">Cantidad *</label>
+                <div class="qty-row">
+                  <input id="scannerQty" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0" />
+                  <span id="scannerQtyUnit" class="qty-unit"></span>
+                </div>
+              </div>
+              <div>
+                <label for="scannerLote">Lote *</label>
+                <input id="scannerLote" class="lote-input" type="text" maxlength="30" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="Lote" />
+              </div>
+            </div>
+            <p id="scannerConversion" class="conversion-line" aria-live="polite"></p>
+            <label for="scannerCaducidad">Caducidad *</label>
+            <input id="scannerCaducidad" type="date" />
+            <p id="scannerCadHint" class="field-hint" aria-live="polite"></p>
+
+            <!-- Control de calidad ligado al lote: estado obligatorio en un toque; el resto, opcional y plegado. -->
+            <div class="qc-section">
+              <div class="qc-header">
+                <span class="field-label">Calidad *</span>
+                <span id="scannerSemaforo" class="semaforo semaforo-vacio" title="Estado QC"></span>
+              </div>
+              <div id="scannerEstadoGroup" class="segmented" role="radiogroup" aria-label="Estado de calidad" tabindex="-1">
+                <button type="button" class="seg seg-aprobado" data-estado="aprobado" role="radio" aria-checked="false">Aprobado</button>
+                <button type="button" class="seg seg-cuarentena" data-estado="cuarentena" role="radio" aria-checked="false">Cuarentena</button>
+                <button type="button" class="seg seg-rechazado" data-estado="rechazado" role="radio" aria-checked="false">Rechazado</button>
+              </div>
+              <select id="scannerEstadoQc" class="qc-estado sr-only" tabindex="-1" aria-hidden="true">
+                <option value="">Selecciona estado</option>
+                <option value="aprobado">Aprobado</option>
+                <option value="cuarentena">Cuarentena</option>
+                <option value="rechazado">Rechazado</option>
+              </select>
+              <details class="qc-details">
+                <summary>Detalles de calidad (opcional)</summary>
+                <label for="scannerResponsableQc">Responsable</label>
+                <input id="scannerResponsableQc" type="text" placeholder="Si se deja vacío, quien registra" />
+                <div class="qc-checks">
+                  <label class="checkbox-row"><input id="scannerEmpaqueOk" type="checkbox" /> Empaque OK</label>
+                  <label class="checkbox-row"><input id="scannerSinHumedad" type="checkbox" /> Sin humedad</label>
+                  <label class="checkbox-row"><input id="scannerTemperaturaOk" type="checkbox" /> Temperatura OK</label>
+                  <label class="checkbox-row"><input id="scannerAspectoOlorOk" type="checkbox" /> Aspecto / olor OK</label>
+                  <label class="checkbox-row"><input id="scannerDocProveedorOk" type="checkbox" /> Documentación proveedor OK</label>
+                </div>
+                <label for="scannerTempRecepcion">Temperatura de recepción (°C)</label>
+                <input id="scannerTempRecepcion" type="number" inputmode="decimal" step="0.1" min="-30" max="60" placeholder="Ej. 4.0" />
+                <label for="scannerObservacionesQc">Observaciones</label>
+                <textarea id="scannerObservacionesQc" rows="2" maxlength="500" placeholder="Notas del control de calidad"></textarea>
+              </details>
+            </div>
+          </div>
+
+          <!-- P04 / U8: los pendientes de la recepción, en la misma pantalla. -->
+          <section id="pendingSection" class="pending-section hidden">
+            <div class="pending-head">
+              <h3>Pendientes de confirmar</h3>
+              <span id="pendingCount" class="pending-count"></span>
+            </div>
+            <ul id="pendingCards" class="pending-cards"></ul>
+          </section>
+        </section>
+
+        <section id="entriesPanel" class="panel">
+          <h2 class="sr-only">Ingresos registrados</h2>
+          <!-- P07 / FH 11: confirmar como acción principal, separada de la impresión. -->
+          <div id="confirmBox" class="confirm-box hidden">
+            <p><span class="pending-badge">Pendiente de confirmar</span> <strong id="confirmBoxCount">0</strong> producto(s) todavía no están en la base.</p>
+            <button id="bulkButton" type="button" class="btn-primary">Confirmar ingresos</button>
+          </div>
+          <label class="checkbox-row">
+            <input id="onlyNoBarcode" type="checkbox" />
+            Mostrar solo productos sin código de barras
+          </label>
+          <div class="search-row">
+            <input id="filterLote" type="text" placeholder="Filtrar por lote" />
+            <input id="filterCaducidad" type="date" title="Filtrar por fecha de caducidad" />
+            <button id="clearFiltersButton" class="secondary">Limpiar filtros</button>
+          </div>
+          <div id="pendingEntries" class="pending-list"></div>
+          <div class="table-wrap">
+            <!-- P07 / U17: en el EDA52 cada ingreso es una tarjeta de 3 líneas. -->
+            <table class="entries-table">
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th>Cantidad</th>
+                  <th>Convertida</th>
+                  <th>Lote</th>
+                  <th>Caducidad</th>
+                  <th>Estado y acciones</th>
+                  <th>¿Código de barras?</th>
+                </tr>
+              </thead>
+              <tbody id="entriesTableBody"></tbody>
+            </table>
+          </div>
+
+          <details class="tools-box">
+            <summary>Etiquetas</summary>
+          <div class="entry-actions">
+            <button id="printLabelsButton">Imprimir etiquetas</button>
+            <button id="previewLabelsButton">Previsualizar A4</button>
+            <button id="closePreviewButton" class="secondary hidden">Cerrar vista previa</button>
+          </div>
+          <div id="labelPreviewContainer" class="preview-container hidden"></div>
+
+          <!-- Impresión ZPL en la Zebra ZD230. La cantidad y el modo prueba aplican
+               al botón "Imprimir etiqueta" de cada fila. -->
+          <div class="print-controls">
+            <div class="print-controls-row">
+              <label for="printCantidad">Cantidad de etiquetas</label>
+              <input id="printCantidad" type="number" min="1" step="1" value="1" />
+            </div>
+            <label class="checkbox-row">
+              <input id="printTestMode" type="checkbox" />
+              Modo prueba (mostrar ZPL sin enviar a la impresora)
+            </label>
+            <span id="printerConfig" class="printer-config"></span>
+          </div>
+          <div id="zplPreview" class="result-card hidden"></div>
+
+          </details>
+          <!-- P03: descarga de recepciones y productos para los KPI 1, 1b y 2. -->
+          <div class="export-box">
+            <h3>Exportar a Excel</h3>
+            <p class="export-help">Recepciones (horas de llegada, inicio y fin) y sus productos, por fecha de llegada.</p>
+            <div class="export-row">
+              <div>
+                <label for="exportDesde">Desde</label>
+                <input id="exportDesde" type="date" />
+              </div>
+              <div>
+                <label for="exportHasta">Hasta</label>
+                <input id="exportHasta" type="date" />
+              </div>
+            </div>
+            <button id="exportButton" type="button" class="btn-outline">Descargar Excel</button>
+          </div>
+        </section>
+
+        <section id="adminPanel" class="panel">
+          <h2>Panel de administración</h2>
+          <p id="adminIntro">Camilo puede revisar el estado del backend y los datos cargados.</p>
+          <div class="admin-filters">
+            <select id="adminUserFilter">
+              <option value="">Todos los usuarios</option>
+            </select>
+            <button id="refreshAdminButton">Recargar datos del backend</button>
+          </div>
+          <div id="adminSummary" class="result-card"></div>
+        </section>
+      </section>
+    </main>
+
+    <!-- P04: una acción principal fija abajo: «Guardar producto» o «Confirmar N ingresos». -->
+    <div id="actionBar" class="action-bar hidden">
+      <div class="action-row">
+        <button id="cancelEditButton" type="button" class="btn-outline hidden">Cancelar</button>
+        <button id="saveScannerButton" type="button" class="btn-primary">Guardar producto</button>
+      </div>
+      <button id="confirmBarButton" type="button" class="btn-primary hidden">Confirmar ingresos</button>
+    </div>
+
+    <!-- Diálogo propio (reemplaza las ventanas del navegador donde se va necesitando). -->
+    <dialog id="appDialog" class="app-dialog" aria-labelledby="appDialogTitle">
+      <p id="appDialogTitle" class="dialog-title"></p>
+      <p id="appDialogText" class="dialog-text"></p>
+      <div id="appDialogActions" class="dialog-actions"></div>
+    </dialog>
+
+    <script src="/app.js?v=20261117-p24"></script>
+  </body>
+</html>

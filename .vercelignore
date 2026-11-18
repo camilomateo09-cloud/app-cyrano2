@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.db
+.DS_Store
+# P24: las pruebas no se publican
+backend/test_*.py
+backend/conftest.py
+backend/_cliente_pruebas.py
