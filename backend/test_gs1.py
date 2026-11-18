@@ -46,7 +46,7 @@ def test_la_misma_caja_con_otro_lote_se_encuentra_r3():
     # En el catálogo está «01178610717000351726112710L11EZX24» (azúcar morena, saco).
     otro_lote = "01178610717000351727031510NUEVO99"
     r = client.get("/api/products/scan", params={"code": otro_lote, "session_id": SESION}).json()
-    assert [p["codigo_cyrano"] for p in r["productos"]] == ["529"]  # una sola presentación (sin duplicar)
+    assert [p["codigo_cyrano"] for p in r["productos"]] == ["EDC018"]  # una sola presentación (sin duplicar)
     assert r["gs1"] == {"gtin": "17861071700035", "lote": "NUEVO99", "caducidad": "2027-03-15", "caducidad_fuente": "17"}
 
 
@@ -63,11 +63,11 @@ def test_tres_etiquetas_del_catalogo_con_lote_y_caducidad():
 def test_gtin13_del_catalogo_se_encuentra_desde_gtin14():
     # Vaso degustación: en el catálogo 7861010907351 (GTIN-13); en la caja (01)07861010907351.
     r = client.get("/api/products/scan", params={"code": "010786101090735110LOTEX", "session_id": SESION}).json()
-    assert [p["codigo_cyrano"] for p in r["productos"]] == ["856"]
+    assert [p["codigo_cyrano"] for p in r["productos"]] == ["EPP109"]
     assert r["gs1"]["lote"] == "LOTEX"
 
 
 def test_codigo_comun_y_desconocido():
     r = client.get("/api/products/scan", params={"code": "7861010907351", "session_id": SESION}).json()
-    assert r["gs1"] is None and r["productos"][0]["codigo_cyrano"] == "856"
+    assert r["gs1"] is None and r["productos"][0]["codigo_cyrano"] == "EPP109"
     assert client.get("/api/products/scan", params={"code": "999", "session_id": SESION}).json()["productos"] == []

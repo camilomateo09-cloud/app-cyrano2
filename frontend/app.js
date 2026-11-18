@@ -292,6 +292,7 @@ function unitText(unit) {
 
 function pluralUnit(unit, quantity = 2) {
   if (!unit) return "";
+  if (unit === "lamina") return Number(quantity) === 1 ? "lámina" : "láminas";
   if (Number(quantity) === 1) return unit;
   return /[aeiou]$/i.test(unit) ? `${unit}s` : `${unit}es`;
 }
@@ -427,9 +428,9 @@ async function confirmDiscard() {
 async function chooseProduct(products, barcode) {
   const choice = await askDialog({
     title: `El código ${barcode} está en ${products.length} productos`,
-    text: "Elige el que llegó. (El catálogo se corrige con Cyrano: paquete P25.)",
+    text: "Elige la presentación que llegó: mira en la etiqueta si es la unidad suelta, el paquete o la caja.",
     actions: [
-      ...products.map((p, i) => ({ label: `${p.codigo_cyrano} — ${p.nombre_producto} (${p.unidad_llega})`, value: String(i), variant: "btn-outline choice-button" })),
+      ...products.map((p, i) => ({ label: `${p.codigo_cyrano} — ${p.nombre_producto} (1 ${p.unidad_llega} = ${fmtNum(convertQty(1, p))} ${unitText(p.unidad_planta)})`, value: String(i), variant: "btn-outline choice-button" })),
       { label: "Cancelar", value: "cancel", variant: "link" },
     ],
   });
@@ -1191,7 +1192,7 @@ function renderProductCard(container, product, isBarcode) {
   container.innerHTML = `
     <p class="product-name">${escapeHtml(product.nombre_producto)}</p>
     <p class="product-meta"><span class="product-code">${escapeHtml(product.codigo_cyrano)}</span>
-      ${escapeHtml(presentacion)} · SAP ${product.codigo_sap ? escapeHtml(product.codigo_sap) : '<span class="sap-pendiente">por confirmar</span>'}</p>
+      ${escapeHtml(presentacion)}${product.codigo_sap && product.codigo_sap !== product.codigo_cyrano ? ` · SAP ${escapeHtml(product.codigo_sap)}` : ""}</p>
   `;
 }
 

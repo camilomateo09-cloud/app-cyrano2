@@ -1,4 +1,5 @@
-"""P23 · Catálogo: código SAP, unidades en lista cerrada y sin productos de ejemplo."""
+"""P23 · Catálogo (desde nov-2026 sale del Libro11 de Cyrano): código, unidades en lista cerrada,
+regla de conversión y recarga cuando cambia el CSV."""
 
 import csv
 import sqlite3
@@ -6,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.database import PRODUCTOS_EJEMPLO, UNIDADES_LLEGADA, UNIDADES_PLANTA, get_connection, init_db
+from backend.database import UNIDADES_LLEGADA, UNIDADES_PLANTA, get_connection, init_db
 
 CSV = Path(__file__).resolve().parent.parent / "insumos" / "productos.csv"
 
@@ -15,16 +16,37 @@ def setup_function() -> None:
     init_db()
 
 
-def test_sin_productos_de_ejemplo_y_con_codigo_sap():
+def test_el_catalogo_es_el_libro11_completo():
+    filas = list(csv.DictReader(CSV.open(encoding="utf-8")))
     conn = get_connection()
     try:
-        marcas = ", ".join("?" for _ in PRODUCTOS_EJEMPLO)
-        assert conn.execute(f"SELECT COUNT(*) FROM productos WHERE codigo_cyrano IN ({marcas})", PRODUCTOS_EJEMPLO).fetchone()[0] == 0
         total = conn.execute("SELECT COUNT(*) FROM productos").fetchone()[0]
-        con_sap = conn.execute("SELECT COUNT(*) FROM productos WHERE codigo_sap IS NOT NULL").fetchone()[0]
-        assert total == 669
-        assert con_sap / total > 0.95
-        assert conn.execute("SELECT codigo_sap FROM productos WHERE id = 32").fetchone()[0] == "MT041"  # aceite desmoldante
+        assert total == len(filas) == 1417
+        assert conn.execute("SELECT COUNT(*) FROM productos WHERE codigo_sap IS NULL OR codigo_sap = ''").fetchone()[0] == 0
+        assert conn.execute("SELECT codigo_cyrano FROM productos WHERE id = 32").fetchone()[0] == "MT041"  # aceite desmoldante (mismo id)
+        # Unidades nuevas del Libro11: lámina, cubeta…
+        assert conn.execute("SELECT COUNT(*) FROM productos WHERE unidad_llega = 'lamina'").fetchone()[0] > 0
+        huevo = conn.execute("SELECT unidad_llega, cantidad_por_caja, factor_conversion, unidad_planta FROM productos WHERE codigo_cyrano = 'HUE001'").fetchone()
+        assert tuple(huevo) == ("cubeta", 30, 0.0567, "kg")  # 1 cubeta = 30 × 0,0567 kg
+    finally:
+        conn.close()
+
+
+def test_si_cambia_el_csv_el_catalogo_se_vuelve_a_cargar():
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE productos SET nombre_producto = 'NOMBRE VIEJO' WHERE id = 32")
+        conn.execute("INSERT INTO productos (id, codigo_cyrano, nombre_producto, proveedor, unidad_llega, cantidad_asociada, unidad_planta, factor_conversion, cantidad_por_caja) "
+                     "VALUES (99999, 'VIEJO1', 'PRODUCTO QUE YA NO ESTA', 'x', 'unidad', 1, 'unid', 1, 1)")
+        conn.execute("UPDATE catalogo_version SET huella = 'otra'")
+        conn.commit()
+    finally:
+        conn.close()
+    init_db()
+    conn = get_connection()
+    try:
+        assert conn.execute("SELECT nombre_producto FROM productos WHERE id = 32").fetchone()[0] == "ACEITE DESMOLDANTE FABRIL"
+        assert conn.execute("SELECT COUNT(*) FROM productos WHERE id = 99999").fetchone()[0] == 0
     finally:
         conn.close()
 

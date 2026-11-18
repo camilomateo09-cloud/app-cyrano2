@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import os
 import secrets
 import sqlite3
@@ -122,9 +123,7 @@ def init_db() -> None:
     ensure_claves_seguras(cursor)
     sincronizar_usuarios(cursor)
     ensure_catalogo(cursor)
-    if cursor.execute("SELECT COUNT(*) FROM productos").fetchone()[0] == 0:
-        load_productos(cursor)
-    actualizar_catalogo_existente(cursor)
+    sincronizar_catalogo(cursor)
     if cursor.execute("SELECT COUNT(*) FROM proveedores").fetchone()[0] == 0:
         load_proveedores(cursor)
 
@@ -340,7 +339,8 @@ def load_proveedores(cursor: sqlite3.Cursor) -> None:
 
 # ---------- P23 · Catálogo: código SAP, unidades en lista cerrada, sin productos de ejemplo ----------
 # Regla de conversión (D9): cantidad en unidad de planta = cantidad que llega × cantidad_por_caja × factor_conversion.
-UNIDADES_LLEGADA = ("unidad", "paquete", "caja", "rollo", "saco", "caneca", "barril", "bulto")
+# Catálogo Libro11 (nov-2026): se agregan lámina, balde, cubeta y gaveta.
+UNIDADES_LLEGADA = ("unidad", "paquete", "caja", "rollo", "saco", "caneca", "barril", "bulto", "lamina", "balde", "cubeta", "gaveta")
 UNIDADES_PLANTA = ("unid", "kg", "l", "paquete", "caja", "rollo")
 PRODUCTOS_EJEMPLO = ("HAR035", "HAR036", "M22", "MAN012", "CHO040", "HUE001")  # no son de Cyrano
 
@@ -368,24 +368,34 @@ def ensure_catalogo(cursor: sqlite3.Cursor) -> None:
     """)
 
 
-def actualizar_catalogo_existente(cursor: sqlite3.Cursor) -> None:
-    """Para bases creadas antes del P23: quita los 6 productos de ejemplo (si no tienen
-    ingresos) y completa el código SAP desde el CSV."""
-    marcas = ", ".join("?" for _ in PRODUCTOS_EJEMPLO)
-    cursor.execute(
-        f"DELETE FROM productos WHERE codigo_cyrano IN ({marcas}) AND id NOT IN (SELECT producto_id FROM ingresos)",
-        PRODUCTOS_EJEMPLO,
-    )
-    if cursor.execute("SELECT COUNT(*) FROM productos WHERE codigo_sap IS NOT NULL AND codigo_sap <> ''").fetchone()[0]:
+def _huella_catalogo() -> str:
+    return hashlib.sha256((INSUMOS_DIR / "productos.csv").read_bytes()).hexdigest()
+
+
+def sincronizar_catalogo(cursor: sqlite3.Cursor) -> None:
+    """Carga el catálogo desde insumos/productos.csv y lo vuelve a cargar cuando el CSV cambia.
+
+    Desde el Libro11 (maestro de Cyrano) el catálogo se reemplaza entero: se guarda una huella
+    del CSV y, si cambió, se actualizan los productos por id, se agregan los nuevos y se quitan
+    los que ya no están (solo si no tienen ingresos; los que tienen ingresos se conservan para
+    no perder la trazabilidad).
+    """
+    cursor.execute("CREATE TABLE IF NOT EXISTS catalogo_version (id INTEGER PRIMARY KEY CHECK (id = 1), huella TEXT NOT NULL, cargado_at TEXT NOT NULL)")
+    huella = _huella_catalogo()
+    fila = cursor.execute("SELECT huella FROM catalogo_version WHERE id = 1").fetchone()
+    if fila and fila[0] == huella and cursor.execute("SELECT COUNT(*) FROM productos").fetchone()[0]:
         return
-    path = INSUMOS_DIR / "productos.csv"
-    with path.open("r", encoding="utf-8", newline="") as handle:
-        for row in csv.DictReader(handle):
-            if row.get("codigo_sap") is not None:
-                cursor.execute(
-                    "UPDATE productos SET codigo_sap = ?, equivalencia_sap = ? WHERE id = ?",
-                    (row["codigo_sap"] or None, row.get("equivalencia_sap") or "sin pareja", int(row["id"])),
-                )
+    ids = load_productos(cursor)
+    marcas = ", ".join("?" for _ in ids)
+    cursor.execute(
+        f"DELETE FROM productos WHERE id NOT IN ({marcas}) AND id NOT IN (SELECT producto_id FROM ingresos WHERE producto_id IS NOT NULL)",
+        tuple(ids),
+    )
+    cursor.execute(
+        "INSERT INTO catalogo_version (id, huella, cargado_at) VALUES (1, ?, datetime('now')) "
+        "ON CONFLICT(id) DO UPDATE SET huella = excluded.huella, cargado_at = excluded.cargado_at",
+        (huella,),
+    )
 
 
 def ensure_claves_seguras(cursor: sqlite3.Cursor) -> None:
@@ -435,12 +445,14 @@ def sincronizar_usuarios(cursor: sqlite3.Cursor) -> None:
                 cursor.execute("UPDATE usuarios SET nombre = ?, rol = ? WHERE id = ?", (row["nombre"].strip(), rol, int(row["id"])))
 
 
-def load_productos(cursor: sqlite3.Cursor) -> None:
-    """Carga productos desde insumos/productos.csv."""
+def load_productos(cursor: sqlite3.Cursor) -> list[int]:
+    """Carga (o actualiza por id) los productos de insumos/productos.csv; devuelve los ids."""
     path = INSUMOS_DIR / "productos.csv"
+    ids: list[int] = []
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
+            ids.append(int(row["id"]))
             cursor.execute(
                 """
                 INSERT INTO productos (
@@ -457,6 +469,13 @@ def load_productos(cursor: sqlite3.Cursor) -> None:
                     codigo_sap,
                     equivalencia_sap
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    codigo_cyrano = excluded.codigo_cyrano, nombre_producto = excluded.nombre_producto,
+                    codigo_barra = excluded.codigo_barra, proveedor = excluded.proveedor,
+                    unidad_llega = excluded.unidad_llega, cantidad_asociada = excluded.cantidad_asociada,
+                    unidad_planta = excluded.unidad_planta, factor_conversion = excluded.factor_conversion,
+                    cantidad_por_caja = excluded.cantidad_por_caja, codigo_sap = excluded.codigo_sap,
+                    equivalencia_sap = excluded.equivalencia_sap
                 """,
                 (
                     int(row["id"]),
@@ -473,6 +492,7 @@ def load_productos(cursor: sqlite3.Cursor) -> None:
                     (row.get("equivalencia_sap") or "sin pareja").strip(),
                 ),
             )
+    return ids
 
 
 def fetch_all(query: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:

@@ -108,7 +108,7 @@ def test_lote_invalido_en_masivo_dice_la_linea_y_no_guarda_ninguna():
     lineas = [ingreso(linea_id="ok-1"), ingreso(linea_id="mal-2", lote="LOTE CON ESPACIO")]
     response = client.post("/api/entries/bulk", json={"entries": lineas})
     assert response.status_code == 422
-    assert response.json()["detail"].startswith("Línea 2 (1371 · lote LOTE CON ESPACIO)")
+    assert response.json()["detail"].startswith("Línea 2 (MT041 · lote LOTE CON ESPACIO)")
     assert contar() == 0
 
 
