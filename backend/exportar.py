@@ -22,6 +22,9 @@ BLANCO_NEGRITA = Font(bold=True, color="FFFFFF")
 NEGRITA = Font(bold=True)
 
 
+DESTINOS = {"aprobado": "Inventario", "cuarentena": "Retenido (cuarentena)", "rechazado": "No ingresa (rechazado)"}
+
+
 def _local(iso: str | None) -> datetime | None:
     """«2026-11-10T19:52:00-05:00» → datetime local sin zona (Excel no guarda zonas)."""
     if not iso:
@@ -89,6 +92,7 @@ def construir_excel(recepciones: list[dict[str, Any]], ingresos: list[dict[str, 
         ("Cantidad en unidad de planta", 12), ("Unidad de planta", 10),
         ("Lote", 14), ("Caducidad", 11), ("Calidad", 11), ("Hora de registro", 11), ("Operador", 12),
         ("Estado del registro", 11), ("Motivo de anulación", 30), ("Anulado por", 12), ("Anulado (hora)", 16),
+        ("Destino", 22), ("Motivo de calidad", 30), ("Cuarentena resuelta por", 14), ("Resuelta (hora)", 16), ("Motivo de la resolución", 30),
     ])
     for r, ing in enumerate(ingresos, start=2):
         registro = _local(ing["created_at"])
@@ -102,14 +106,18 @@ def construir_excel(recepciones: list[dict[str, Any]], ingresos: list[dict[str, 
             ing["lote"], ing["fecha_caducidad"], ing["estado_qc"], registro, ing.get("usuario_nombre") or "",
             ing.get("estado_registro") or "vigente", ing.get("anulado_motivo") or "", ing.get("anulado_por") or "",
             _local(ing.get("anulado_at")),
+            # P16: qué pasa con el lote según su calidad (solo «Inventario» se compara con SAP).
+            DESTINOS.get(ing["estado_qc"], ""), ing.get("motivo_qc") or "", ing.get("qc_resuelto_por") or "",
+            _local(ing.get("qc_resuelto_at")), ing.get("qc_resolucion") or "",
         ]
         for c, v in enumerate(valores, start=1):
             wp.cell(row=r, column=c, value=v)
         wp.cell(row=r, column=3).number_format = "yyyy-mm-dd"
         wp.cell(row=r, column=17).number_format = "hh:mm"
         wp.cell(row=r, column=22).number_format = "yyyy-mm-dd hh:mm"
+        wp.cell(row=r, column=26).number_format = "yyyy-mm-dd hh:mm"
         if (ing.get("estado_registro") or "vigente") == "anulado":
-            for c in range(1, 23):
+            for c in range(1, 28):
                 wp.cell(row=r, column=c).font = Font(color="8A8A8A", strike=True)
     n_ing = len(ingresos) + 1
 
@@ -133,6 +141,9 @@ def construir_excel(recepciones: list[dict[str, Any]], ingresos: list[dict[str, 
         ("Recepciones con inicio marcado por el 1.er producto", f'=COUNTIF(Recepciones!J2:J{max(n_rec, 2)},"Sí")', "En estas la espera es aproximada: nadie tocó «Empezar descarga»."),
         ("Productos confirmados (vigentes)", f'=COUNTIF(Productos!S2:S{max(n_ing, 2)},"vigente")', "Líneas para comparar con SAP en el KPI 2. Los anulados no cuentan."),
         ("Productos anulados", f'=COUNTIF(Productos!S2:S{max(n_ing, 2)},"anulado")', "Siguen en la hoja Productos (tachados) con su motivo."),
+        ("Pasan a inventario (aprobados)", f'=COUNTIFS(Productos!S2:S{max(n_ing, 2)},"vigente",Productos!P2:P{max(n_ing, 2)},"aprobado")', "P16: estas son las líneas que deberían estar en SAP (KPI 2)."),
+        ("En cuarentena (retenidos)", f'=COUNTIFS(Productos!S2:S{max(n_ing, 2)},"vigente",Productos!P2:P{max(n_ing, 2)},"cuarentena")', "Registrados, pero no disponibles hasta que se liberen."),
+        ("Rechazados (no ingresan)", f'=COUNTIFS(Productos!S2:S{max(n_ing, 2)},"vigente",Productos!P2:P{max(n_ing, 2)},"rechazado")', "Quedan registrados con su motivo; no pasan a inventario."),
     ]
     resumen["A5"], resumen["B5"], resumen["C5"] = "Indicador", "Valor", "Nota"
     for c in "ABC":
@@ -146,7 +157,8 @@ def construir_excel(recepciones: list[dict[str, Any]], ingresos: list[dict[str, 
     resumen.cell(row=7, column=2).number_format = "0"
     resumen.cell(row=13, column=2).number_format = "0"
     resumen.cell(row=14, column=2).number_format = "0"
-    resumen.cell(row=15, column=2).number_format = "0"
+    for fila_n in (15, 16, 17, 18):
+        resumen.cell(row=fila_n, column=2).number_format = "0"
 
     # ---------- Leyenda ----------
     wl = wb.create_sheet("Leyenda")
@@ -163,6 +175,7 @@ def construir_excel(recepciones: list[dict[str, Any]], ingresos: list[dict[str, 
         ("Productos", "Una fila por producto confirmado, ligado a su recepción. Sirve para comparar con las entradas de SAP (KPI 2) por fecha, proveedor y artículo."),
         ("Cantidad en unidad de planta", "Cantidad que llega × unidades por empaque × factor (regla del catálogo)."),
         ("Estado del registro", "vigente o anulado. Un ingreso confirmado no se borra: se anula con motivo, usuario y hora, y queda en la hoja tachado."),
+        ("Calidad y Destino", "aprobado → Inventario; cuarentena → Retenido (no disponible hasta liberarlo); rechazado → No ingresa. Cuarentena y rechazo llevan motivo. Una cuarentena se resuelve después (liberar o rechazar) con quién, cuándo y por qué; la calidad final queda en la columna Calidad."),
         ("Código SAP", "Código del artículo en SAP (MovCompras), de la tabla de equivalencias código Cyrano – código SAP (P23). Vacío = equivalencia por confirmar con Cyrano."),
     ]
     for i, (a, b) in enumerate(leyenda, start=1):

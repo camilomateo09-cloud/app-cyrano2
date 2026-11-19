@@ -35,7 +35,7 @@ const elements = {
   filterLote: document.getElementById("filterLote"),
   filterCaducidad: document.getElementById("filterCaducidad"),
   clearFiltersButton: document.getElementById("clearFiltersButton"),
-  printCantidad: document.getElementById("printCantidad"),
+  labelsList: document.getElementById("labelsList"),
   printTestMode: document.getElementById("printTestMode"),
   printerConfig: document.getElementById("printerConfig"),
   zplPreview: document.getElementById("zplPreview"),
@@ -156,14 +156,14 @@ function clearInvalid(input) {
 
 // Bloquea el botón y cambia su texto mientras se espera al servidor (U12).
 async function withBusy(button, busyText, task) {
-  const original = button.textContent;
+  const original = button.innerHTML; // conserva los íconos SVG del botón (P11)
   button.disabled = true;
   button.textContent = busyText;
   try {
     return await task();
   } finally {
     button.disabled = false;
-    button.textContent = original;
+    button.innerHTML = original;
   }
 }
 
@@ -177,7 +177,7 @@ async function apiFetch(url, options = {}) {
     response = await fetch(url, { ...options, headers });
   } catch (error) {
     setOnline(false);
-    throw new Error("Sin respuesta del servidor. Revisa el Wi-Fi e intenta de nuevo.");
+    throw new Error("No hay conexión. Revisa el Wi-Fi e intenta de nuevo.");
   }
   if (!connection.online) setOnline(true);
   // Sesión vencida o no válida: volver a la pantalla de clave (los pendientes quedan en el servidor).
@@ -201,7 +201,7 @@ function setOnline(isOnline, detail) {
   if (!isOnline) {
     elements.offlineDetail.textContent = detail || (navigator.onLine === false
       ? "El equipo no tiene Wi-Fi. Buscar y confirmar no funcionan; lo que ya agregaste no se pierde."
-      : "No hay respuesta del servidor. Buscar y confirmar no funcionan; lo que ya agregaste no se pierde.");
+      : "Sin conexión: buscar y confirmar no funcionan por ahora. Lo que ya agregaste no se pierde.");
     elements.offlineBanner.classList.remove("hidden");
     if (!connection.timer) connection.timer = window.setInterval(checkServer, 10000);
     return;
@@ -234,7 +234,7 @@ async function onReconnect() {
   for (const entry of pendingToSync) {
     if (await syncPending(entry)) ok += 1;
   }
-  notify(`Conexión recuperada. ${ok} pendiente(s) guardados en el servidor.`, ok === pendingToSync.length ? "ok" : "warn");
+  notify(`Conexión recuperada. ${ok} pendiente(s) quedaron a salvo.`, ok === pendingToSync.length ? "ok" : "warn");
 }
 
 async function retryConnection() {
@@ -472,16 +472,21 @@ function readQc(prefix) {
     aspecto_olor_ok: qcEl(prefix, "AspectoOlorOk").checked,
     documentacion_proveedor_ok: qcEl(prefix, "DocProveedorOk").checked,
     temperatura_recepcion: temp === "" ? null : Number(temp),
+    // P16: el motivo solo va si el lote no queda aprobado.
+    motivo_qc: qcEl(prefix, "EstadoQc").value && qcEl(prefix, "EstadoQc").value !== QC_ESTADO_CONFIRMABLE
+      ? qcEl(prefix, "MotivoQc").value.trim() : "",
   };
 }
 
 function resetQc(prefix) {
   qcEl(prefix, "EstadoQc").value = "";
-  qcEl(prefix, "ResponsableQc").value = "";
+  // P12 / FH 17: el responsable de calidad se llena con quien entró a la app (se puede cambiar).
+  qcEl(prefix, "ResponsableQc").value = state.user?.nombre || "";
   qcEl(prefix, "ObservacionesQc").value = "";
   ["EmpaqueOk", "SinHumedad", "TemperaturaOk", "AspectoOlorOk", "DocProveedorOk"]
     .forEach((n) => { qcEl(prefix, n).checked = false; });
   qcEl(prefix, "TempRecepcion").value = "";
+  qcEl(prefix, "MotivoQc").value = "";
   updateSemaforo(prefix);
 }
 
@@ -490,14 +495,28 @@ function updateSemaforo(prefix) {
   const estado = qcEl(prefix, "EstadoQc").value;
   const sem = qcEl(prefix, "Semaforo");
   sem.className = "semaforo " + (estado ? `semaforo-${estado}` : "semaforo-vacio");
-  sem.title = estado ? `QC: ${estado}` : "Estado QC";
+  sem.title = estado ? `Calidad: ${estado}` : "Estado de calidad";
   // P04: estado en tres botones (un toque); el select oculto sigue siendo el valor.
   document.querySelectorAll(`#${prefix}EstadoGroup .seg`).forEach((button) => {
     const on = button.dataset.estado === estado;
     button.classList.toggle("is-on", on);
     button.setAttribute("aria-checked", on ? "true" : "false");
   });
+  // P16: al elegir cuarentena o rechazado se avisa qué significa y se pide el motivo.
+  const box = qcEl(prefix, "MotivoBox");
+  if (box) {
+    const aviso = AVISOS_QC[estado];
+    box.classList.toggle("hidden", !aviso);
+    box.classList.toggle("is-rechazado", estado === "rechazado");
+    qcEl(prefix, "QcAviso").innerHTML = aviso || "";
+    qcEl(prefix, "MotivoLabel").textContent = estado === "rechazado" ? "Motivo del rechazo *" : "Motivo de la cuarentena *";
+  }
 }
+
+const AVISOS_QC = {
+  cuarentena: "<strong>Cuarentena:</strong> se registra, pero <strong>no queda disponible</strong> hasta que se libere. Sepáralo del resto y avisa al supervisor.",
+  rechazado: "<strong>Rechazado:</strong> se registra con su motivo y <strong>no entra al inventario</strong>. No lo guardes junto a lo aprobado.",
+};
 
 // Badge de estado QC con su color para la tabla y la trazabilidad.
 function qcBadge(estado) {
@@ -505,8 +524,69 @@ function qcBadge(estado) {
   const clase = e === "aprobado" ? "qc-aprobado"
     : e === "cuarentena" ? "qc-cuarentena"
     : e === "rechazado" ? "qc-rechazado" : "qc-sin";
-  const texto = e ? e.charAt(0).toUpperCase() + e.slice(1) : "Sin QC";
+  const texto = e ? e.charAt(0).toUpperCase() + e.slice(1) : "Sin estado";
   return `<span class="qc-badge ${clase}">${escapeHtml(texto)}</span>`;
+}
+
+// P16: motivo de cuarentena/rechazo y, si la cuarentena se resolvió, quién y por qué.
+function qcNote(entry) {
+  const partes = [];
+  if (entry.motivo_qc) partes.push(escapeHtml(entry.motivo_qc));
+  if (entry.qc_resuelto_por) {
+    const verbo = (entry.estado_qc || "").toLowerCase() === "aprobado" ? "Liberado" : "Rechazado";
+    partes.push(`${verbo} por ${escapeHtml(entry.qc_resuelto_por)} a las ${escapeHtml(hhmm(entry.qc_resuelto_at))}: ${escapeHtml(entry.qc_resolucion || "")}`);
+  }
+  return partes.length ? `<span class="qc-note">${partes.join("<br>")}</span>` : "";
+}
+
+// ---------- P12 / U3 · Ayudas cortas al tocar un campo ----------
+// Una sola línea gris debajo del campo que se está usando: ayuda a quien recién empieza
+// sin alargar el formulario para quien ya sabe (se muestra solo la del campo enfocado).
+const AYUDAS = {
+  usuario: "Tu nombre, como te lo dio el supervisor.",
+  clave: "Los 6 números que te entregaron. No los compartas.",
+  recProveedor: "Escribe parte del nombre y elige de la lista. Si no está, escríbelo completo.",
+  recDocNumero: "El número que está en la factura o en la guía de remisión.",
+  recLlegada: "La hora en que llegó el camión a la planta, no la hora en que empiezan a descargar.",
+  barcodeInput: "Escanea la etiqueta. Si no tiene código, escribe parte del nombre.",
+  scannerQty: "En la unidad del proveedor.",
+  scannerLote: "Como está en la etiqueta o en la caja.",
+  scannerCaducidad: "La fecha de vencimiento de la etiqueta. Si solo trae mes y año, pon el último día de ese mes.",
+  scannerMotivoQc: "Por qué no se aprueba. Elige un motivo de arriba o escríbelo.",
+  scannerResponsableQc: "Ya está tu nombre. Cámbialo si revisó otra persona.",
+  scannerTempRecepcion: "Solo si el producto se recibe frío o congelado.",
+};
+
+function showFieldHelp(input) {
+  const texto = AYUDAS[input.id];
+  if (!texto) return;
+  let hint = document.getElementById(`${input.id}Ayuda`);
+  if (!hint) {
+    hint = document.createElement("p");
+    hint.id = `${input.id}Ayuda`;
+    hint.className = "field-help";
+    // Va debajo de la fila completa si el campo comparte fila (cantidad + unidad, tipo + número, escanear + Buscar).
+    const ancla = input.closest(".qty-row, .doc-row, .scan-row") || input;
+    ancla.insertAdjacentElement("afterend", hint);
+    const previo = input.getAttribute("aria-describedby");
+    input.setAttribute("aria-describedby", previo ? `${previo} ${hint.id}` : hint.id);
+  }
+  hint.textContent = texto;
+  hint.hidden = false;
+}
+
+// La ayuda NO se cierra al salir del campo: si se cerrara, lo de abajo subiría justo cuando
+// el dedo toca un botón (p. ej. «Abrir recepción») y el toque caería en otro lado.
+// Se cierra cuando se toca otro campo con ayuda.
+function setupFieldHelp() {
+  Object.keys(AYUDAS).forEach((id) => {
+    const input = document.getElementById(id);
+    if (!input) return;
+    input.addEventListener("focus", () => {
+      document.querySelectorAll(".field-help").forEach((h) => { if (h.id !== `${id}Ayuda`) h.hidden = true; });
+      showFieldHelp(input);
+    });
+  });
 }
 
 // ---------- P06 · No perder trabajo ----------
@@ -927,9 +1007,10 @@ async function enterApp({ restored = false } = {}) {
     elements.todayDate.textContent = data.fecha;
     elements.userBadge.classList.remove("hidden");
     elements.adminTab.classList.toggle("hidden", !state.isAdmin);
+    elements.adminTab.parentElement.classList.toggle("tabs-4", state.isAdmin); // P13: 4 pestañas → 2 filas en el EDA52
     elements.adminIntro.textContent = state.isAdmin
-      ? "Camilo tiene acceso de administración para revisar el backend y los datos cargados."
-      : "El acceso administrativo solo está disponible para Camilo.";
+      ? "Aquí se revisa lo registrado, el catálogo, los lotes en cuarentena y la impresora."
+      : "Esta parte es solo para el administrador.";
     elements.loginSection.classList.add("hidden");
     elements.mainSection.classList.remove("hidden");
     elements.loginMessage.textContent = "";
@@ -973,6 +1054,7 @@ async function searchByBarcode() {
 
   let products;
   let gs1 = null;
+  let digitoValido = null;
   try {
     const data = await withBusy(elements.searchBarcodeButton, "Buscando…", async () => {
       // P09: el servidor reconoce el GS1-128 (lote y caducidad) y busca por el GTIN de la caja.
@@ -982,6 +1064,7 @@ async function searchByBarcode() {
     });
     products = data.productos || [];
     gs1 = data.gs1 || null;
+    digitoValido = data.digito_valido ?? null;
   } catch (error) {
     notify(error.message, "error");
     return;
@@ -1000,8 +1083,10 @@ async function searchByBarcode() {
   if (!products.length) {
     state.selectedProduct = null;
     elements.scannerActions.classList.add("hidden");
-    notify(`Código ${barcode} no encontrado en el catálogo.`, "error");
-    renderNotFound(barcode);
+    notify(digitoValido === false
+      ? `El código ${barcode} se leyó mal (el último dígito no cuadra). Vuelve a escanear.`
+      : `Código ${barcode} no encontrado en el catálogo.`, "error");
+    renderNotFound(barcode, digitoValido);
     updateActionBar();
     return;
   }
@@ -1049,13 +1134,17 @@ function applyGs1(gs1) {
 }
 
 // Código no encontrado: muestra lo que se leyó y dos salidas (FH 20).
-function renderNotFound(barcode) {
+function renderNotFound(barcode, digitoValido = null) {
   const card = elements.scannerResult;
   card.classList.remove("hidden");
+  // P25: el dígito verificador GS1 dice si fue una mala lectura (el último número no cuadra).
+  const causa = digitoValido === false
+    ? "<p><strong>El último dígito no cuadra</strong>: casi seguro es una mala lectura. Limpia la etiqueta y vuelve a escanear."
+    : "<p>Puede ser una mala lectura o un producto que no está en el catálogo.</p>";
   card.innerHTML = `
-    <p class="not-found-title">Código no encontrado</p>
+    <p class="not-found-title">${digitoValido === false ? "Código mal leído" : "Código no encontrado"}</p>
     <p>Código leído: <span class="not-found-code">${escapeHtml(barcode)}</span></p>
-    <p>Puede ser una mala lectura o un producto que no está en el catálogo.</p>
+    ${causa}
     <div class="not-found-actions">
       <button type="button" data-nf="retry">Escanear de nuevo</button>
       <button type="button" class="secondary" data-nf="byname">Buscar por nombre</button>
@@ -1149,9 +1238,8 @@ function renderAutocomplete() {
           <div class="autocomplete-item" data-index="${index}">
             <div class="item-text">
               <div class="item-title">${escapeHtml(formatProducto(item.codigo_cyrano, item.nombre_producto))}</div>
-              <div class="item-sub">${escapeHtml(item.proveedor)}</div>
+              ${item.del_proveedor ? `<div class="item-del">${ICONS.ok} Lo trae este proveedor</div>` : `<div class="item-sub">${escapeHtml(provText(item))}</div>`}
             </div>
-            <span class="badge badge-producto">Producto</span>
           </div>`;
       }
       return `
@@ -1184,6 +1272,13 @@ async function selectAutocompleteItem(item) {
   selectProduct(item);
 }
 
+// P10: quién trae el producto, según las compras de SAP (MovCompras).
+function provText(product) {
+  const lista = product.proveedores && product.proveedores.length ? product.proveedores
+    : (product.proveedor && product.proveedor !== "Sin asignar" ? [product.proveedor] : []);
+  return lista.length ? `Lo trae: ${lista.join(" · ")}` : "Sin proveedor registrado";
+}
+
 function renderProductCard(container, product, isBarcode) {
   const factors = conversionFactors(product);
   const presentacion = `1 ${product.unidad_llega} = ${fmtNum(convertQty(1, product))} ${unitText(product.unidad_planta)}` +
@@ -1193,6 +1288,7 @@ function renderProductCard(container, product, isBarcode) {
     <p class="product-name">${escapeHtml(product.nombre_producto)}</p>
     <p class="product-meta"><span class="product-code">${escapeHtml(product.codigo_cyrano)}</span>
       ${escapeHtml(presentacion)}${product.codigo_sap && product.codigo_sap !== product.codigo_cyrano ? ` · SAP ${escapeHtml(product.codigo_sap)}` : ""}</p>
+    ${product.del_proveedor === false && state.reception ? `<p class="prov-note">${ICONS.warn}<span>No se le ha comprado a este proveedor. ${escapeHtml(provText(product).replace(/\.$/, ""))}.</span></p>` : ""}
   `;
 }
 
@@ -1262,6 +1358,10 @@ async function saveEntry(type) {
   const qc = readQc(type);
   if (!qc.estado_qc) {
     markInvalid(elements.scannerEstadoGroup, "Falta el estado de calidad: toca Aprobado, Cuarentena o Rechazado.");
+    return;
+  }
+  if (qc.estado_qc !== QC_ESTADO_CONFIRMABLE && qc.motivo_qc.length < 3) {
+    markInvalid(qcEl(type, "MotivoQc"), qc.estado_qc === "rechazado" ? "Escribe o elige el motivo del rechazo." : "Escribe o elige el motivo de la cuarentena.");
     return;
   }
   const temp = qc.temperatura_recepcion;
@@ -1375,8 +1475,9 @@ async function loadEntries() {
 
   if (!entries.length) {
     elements.entriesTableBody.innerHTML = '<tr><td colspan="7">No hay ingresos</td></tr>';
-    elements.pendingEntries.textContent = "Sin ingresos pendientes para etiquetar";
+    elements.pendingEntries.textContent = "";
     renderPendingCards();
+    renderLabels();
     updateActionBar();
     return;
   }
@@ -1387,9 +1488,6 @@ async function loadEntries() {
     // Las entradas pendientes usan un id de reloj (Date.now(), >8 dígitos).
     const isPending = String(entry.id).length > 8;
     const isVoided = entry.estado_registro === "anulado";
-    const printButton = isPending || isVoided
-      ? ""
-      : `<button class="print-button" data-action="print" data-entry-id="${escapeHtml(entry.id)}" title="Imprimir etiqueta en la Zebra">${ICONS.print} Imprimir</button>`;
     // P22: un pendiente se puede quitar (aún no es un registro); un confirmado se anula con motivo.
     let actionHtml;
     if (isVoided) {
@@ -1398,12 +1496,12 @@ async function loadEntries() {
       actionHtml = `<button class="btn-outline small-button" data-action="edit" data-entry-id="${escapeHtml(entry.id)}" title="Corregir este pendiente">Editar</button>` +
         `<button class="link-danger" data-action="delete" data-entry-id="${escapeHtml(entry.id)}" title="Quitar de la lista de pendientes">Quitar</button>`;
     } else {
-      actionHtml = `${printButton}<button class="void-button small-button" data-action="void" data-entry-id="${escapeHtml(entry.id)}" title="Anular este ingreso con un motivo">Anular</button>`;
+      actionHtml = `<button class="void-button small-button" data-action="void" data-entry-id="${escapeHtml(entry.id)}" title="Anular este ingreso con un motivo">Anular</button>`;
     }
     // FH 10: el pendiente se distingue del confirmado con una etiqueta de color.
     const estadoHtml = isVoided
       ? '<span class="qc-badge qc-anulado">Anulado</span>'
-      : `${isPending ? '<span class="pending-badge" title="Pendiente de confirmar">Por confirmar</span>' : ""}${qcBadge(entry.estado_qc)}`;
+      : `${isPending ? '<span class="pending-badge" title="Pendiente de confirmar">Por confirmar</span>' : ""}${qcBadge(entry.estado_qc)}${qcNote(entry)}`;
     const row = document.createElement("tr");
     if (isVoided) row.classList.add("is-voided");
     if (isPending) row.classList.add("is-pending");
@@ -1419,10 +1517,6 @@ async function loadEntries() {
     elements.entriesTableBody.appendChild(row);
   });
 
-  document.querySelectorAll("[data-action='print']").forEach((button) => {
-    button.addEventListener("click", () => printLabel(Number(button.dataset.entryId)));
-  });
-
   document.querySelectorAll("[data-action='void']").forEach((button) => {
     button.addEventListener("click", () => voidEntry(Number(button.dataset.entryId)));
   });
@@ -1433,11 +1527,10 @@ async function loadEntries() {
   elements.entriesTableBody.querySelectorAll("[data-action='edit']").forEach((button) => {
     button.addEventListener("click", () => editPending(Number(button.dataset.entryId)));
   });
-  const noBarcodeEntries = entries.filter((entry) => !entry.codigo_barra);
-  elements.pendingEntries.textContent = noBarcodeEntries.length
-    ? `${noBarcodeEntries.length} ingreso(s) sin código de barras pendientes`
-    : "Sin ingresos pendientes para etiquetar";
+  // P13: lo de etiquetas ya no se muestra en «Registrados»; va en su propia pestaña.
+  elements.pendingEntries.textContent = "";
   renderPendingCards();
+  renderLabels();
   updateActionBar();
 }
 
@@ -1511,6 +1604,7 @@ function editPending(entryId) {
   qcEl("scanner", "EstadoQc").value = entry.estado_qc || "";
   qcEl("scanner", "ResponsableQc").value = entry.responsable_qc || "";
   qcEl("scanner", "ObservacionesQc").value = entry.observaciones_qc || "";
+  qcEl("scanner", "MotivoQc").value = entry.motivo_qc || "";
   qcEl("scanner", "TempRecepcion").value = entry.temperatura_recepcion ?? "";
   qcEl("scanner", "EmpaqueOk").checked = Boolean(entry.empaque_ok);
   qcEl("scanner", "SinHumedad").checked = Boolean(entry.sin_humedad);
@@ -1550,19 +1644,22 @@ async function restorePending(entry) {
   state.entries = [entry, ...state.entries.filter((e) => e.id !== entry.id)];
   const ok = await syncPending(entry);
   await loadEntries();
-  notify(ok ? "Pendiente recuperado." : "Pendiente recuperado en el equipo (sin conexión con el servidor).", ok ? "ok" : "warn");
+  notify(ok ? "Pendiente recuperado." : "Pendiente recuperado de este equipo (no había conexión).", ok ? "ok" : "warn");
 }
 
 // FH 12: revisión antes de confirmar, en tabla y con totales por unidad de planta.
 function reviewTableHtml(entries) {
   const totals = {};
-  entries.forEach((e) => {
+  const esAprobado = (e) => (e.estado_qc || "").toLowerCase() === QC_ESTADO_CONFIRMABLE;
+  entries.filter(esAprobado).forEach((e) => {
     const u = unitText(e.unidad_planta);
     totals[u] = (totals[u] || 0) + Number(e.cantidad_convertida || 0);
   });
+  const retenidos = entries.filter((e) => (e.estado_qc || "").toLowerCase() === "cuarentena").length;
+  const rechazados = entries.filter((e) => (e.estado_qc || "").toLowerCase() === "rechazado").length;
   const rows = entries.map((e) => `
-    <tr>
-      <td><strong>${escapeHtml(e.codigo_cyrano)}</strong> ${escapeHtml(e.nombre_producto)}</td>
+    <tr class="${esAprobado(e) ? "" : "review-noinv"}">
+      <td><strong>${escapeHtml(e.codigo_cyrano)}</strong> ${escapeHtml(e.nombre_producto)}${esAprobado(e) ? "" : `<br>${qcBadge(e.estado_qc)} <small>${escapeHtml(e.motivo_qc || "")}</small>`}</td>
       <td class="num">${escapeHtml(fmtNum(e.cantidad_ingresada))} ${escapeHtml(pluralUnit(e.unidad_llega, e.cantidad_ingresada))}<br><small>${escapeHtml(fmtNum(e.cantidad_convertida))} ${escapeHtml(unitText(e.unidad_planta))}</small></td>
       <td>${escapeHtml(e.lote)}<br><small>${escapeHtml(e.fecha_caducidad)}</small></td>
     </tr>`).join("");
@@ -1571,8 +1668,9 @@ function reviewTableHtml(entries) {
     <table class="review-table">
       <thead><tr><th>Producto</th><th>Cantidad</th><th>Lote / vence</th></tr></thead>
       <tbody>${rows}</tbody>
-      <tfoot><tr><td colspan="3"><strong>${entries.length} línea(s)</strong> · total: ${escapeHtml(totalText)}</td></tr></tfoot>
+      <tfoot><tr><td colspan="3"><strong>${entries.length} línea(s)</strong> · a inventario: ${escapeHtml(totalText || "nada")}</td></tr></tfoot>
     </table>
+    ${retenidos || rechazados ? `<p class="review-note review-warn">${retenidos ? `${retenidos} en cuarentena (retenido${retenidos > 1 ? "s" : ""})` : ""}${retenidos && rechazados ? " y " : ""}${rechazados ? `${rechazados} rechazado${rechazados > 1 ? "s" : ""}` : ""}: se registran con su motivo y no pasan a inventario.</p>` : ""}
     <p class="review-note">Se guardan en la base y salen de la lista de pendientes.</p>`;
 }
 
@@ -1615,6 +1713,7 @@ function renderPendingCards() {
       <div class="pending-text">
         <strong>${escapeHtml(formatProducto(entry.codigo_cyrano, entry.nombre_producto))}</strong>
         <span>${escapeHtml(fmtNum(entry.cantidad_ingresada))} ${escapeHtml(pluralUnit(entry.unidad_llega, entry.cantidad_ingresada))} (${escapeHtml(fmtNum(entry.cantidad_convertida))} ${escapeHtml(unitText(entry.unidad_planta))}) · lote ${escapeHtml(entry.lote)} · vence ${escapeHtml(entry.fecha_caducidad)}</span>
+        ${(entry.estado_qc || "").toLowerCase() !== QC_ESTADO_CONFIRMABLE ? `<span>${qcBadge(entry.estado_qc)} ${escapeHtml(entry.motivo_qc || "")}</span>` : ""}
       </div>
       <span class="pending-actions">
         <button type="button" class="btn-outline small-button" data-action="edit" data-entry-id="${escapeHtml(entry.id)}">Editar</button>
@@ -1650,14 +1749,14 @@ function updateActionBar() {
 }
 
 function buildLabelMarkup() {
-  const noBarcodeEntries = state.entries.filter((entry) => !entry.codigo_barra && entry.estado_registro !== "anulado");
+  // P13: solo confirmados y vigentes (no se etiqueta algo que todavía no está registrado).
+  const noBarcodeEntries = labelableEntries().filter((entry) => !entry.codigo_barra);
   if (!noBarcodeEntries.length) {
     return "";
   }
 
   return noBarcodeEntries.map((entry) => {
-    const divisor = entry.cantidad_por_caja || 1;
-    const copies = Math.max(1, Math.ceil(entry.cantidad_ingresada / divisor));
+    const copies = suggestedLabels(entry);
     const items = [];
     const codeValue = entry.codigo_barra || entry.codigo_cyrano || "CYRANO";
     for (let index = 0; index < copies; index += 1) {
@@ -1677,6 +1776,7 @@ function buildLabelMarkup() {
 function renderPreview() {
   const labels = buildLabelMarkup();
   if (!labels) {
+    notify("No hay productos confirmados sin código de barras para la hoja A4.", "warn");
     elements.labelPreviewContainer.classList.add("hidden");
     elements.labelPreviewContainer.innerHTML = "";
     return;
@@ -1703,7 +1803,7 @@ function renderPreview() {
 function openPrintView() {
   const labels = buildLabelMarkup();
   if (!labels) {
-    notify("No hay ingresos sin código de barras para etiquetar.", "warn");
+    notify("No hay productos confirmados sin código de barras para la hoja A4.", "warn");
     return;
   }
 
@@ -1726,23 +1826,7 @@ async function bulkSave() {
     return;
   }
 
-  // QC: la confirmación del lote solo se permite si el estado es APROBADO.
-  // Si hay lotes rechazados o en cuarentena, se bloquea y se avisa cuáles y por qué.
-  const bloqueados = pendingEntries.filter((entry) => (entry.estado_qc || "").toLowerCase() !== QC_ESTADO_CONFIRMABLE);
-  if (bloqueados.length) {
-    const detalle = bloqueados
-      .map((entry) => `• Lote ${entry.lote} (${entry.codigo_cyrano}): QC ${entry.estado_qc || "sin estado"}`)
-      .join("\n");
-    await askDialog({
-      title: "No se puede confirmar todavía",
-      text: "Solo se confirman lotes aprobados. Estos están en cuarentena o rechazados:\n\n" + detalle +
-        "\n\nQuítalos de la lista para continuar (su registro sin pasar a inventario es el paquete P16).",
-      actions: [{ label: "Entendido", value: "ok" }],
-    });
-    return;
-  }
-
-
+  // P16: cuarentena y rechazo ya no bloquean: se registran con su motivo y no pasan a inventario.
   const choice = await askDialog({
     title: `Revisa y confirma ${pendingEntries.length} ingreso(s)`,
     html: reviewTableHtml(pendingEntries),
@@ -1762,6 +1846,7 @@ async function bulkSave() {
       estado_qc: entry.estado_qc,
       responsable_qc: entry.responsable_qc,
       observaciones_qc: entry.observaciones_qc,
+      motivo_qc: entry.motivo_qc || "",
       empaque_ok: entry.empaque_ok,
       sin_humedad: entry.sin_humedad,
       temperatura_ok: entry.temperatura_ok,
@@ -1822,6 +1907,8 @@ async function loadAdminSummary() {
     <p><strong>Productos:</strong> ${e(summary.totales.productos)}</p>
     <p><strong>Ingresos:</strong> ${e(summary.totales.ingresos)}</p>
     <p><strong>Filtro:</strong> ${e(summary.filtro_actual || "todos")}</p>
+    <h3>Catálogo</h3>
+    <div id="catalogInfo" class="catalog-info">Cargando…</div>
     <h3>Auditoría (últimos 30 eventos)</h3>
     <ul class="audit-list" id="auditList"><li>Cargando…</li></ul>
     <h3>Últimos ingresos</h3>
@@ -1830,10 +1917,97 @@ async function loadAdminSummary() {
     </ul>
   `;
   loadAuditList();
+  loadCatalogInfo();
+  loadQuarantine();
+}
+
+// P16: lotes en cuarentena; el administrador los libera (pasan a inventario) o los rechaza.
+async function loadQuarantine() {
+  const list = document.getElementById("quarantineList");
+  if (!list) return;
+  try {
+    const response = await apiFetch("/api/admin/cuarentena");
+    const items = await response.json();
+    if (!response.ok) throw new Error(items.detail || "No se pudo leer la cuarentena");
+    list.innerHTML = items.length ? items.map((x) => `
+      <li class="label-item">
+        <div class="label-info">
+          <strong>${escapeHtml(formatProducto(x.codigo_cyrano, x.nombre_producto))}</strong>
+          <span>Lote ${escapeHtml(x.lote)} · ${escapeHtml(fmtNum(x.cantidad_ingresada))} ${escapeHtml(pluralUnit(x.unidad_llega, x.cantidad_ingresada))} · ${escapeHtml(x.proveedor || "")}</span>
+          <span>Motivo: ${escapeHtml(x.motivo_qc || "—")} · ${escapeHtml(x.usuario_nombre || "")}, ${escapeHtml((x.created_at || "").slice(0, 16).replace("T", " "))}</span>
+        </div>
+        <div class="quarantine-actions">
+          <button type="button" class="btn-outline" data-resolver="aprobado" data-id="${escapeHtml(x.id)}">Liberar</button>
+          <button type="button" class="void-button" data-resolver="rechazado" data-id="${escapeHtml(x.id)}">Rechazar</button>
+        </div>
+      </li>`).join("") : '<li class="labels-empty">No hay lotes en cuarentena.</li>';
+    list.querySelectorAll("[data-resolver]").forEach((b) => b.addEventListener("click", () => resolveQuarantine(Number(b.dataset.id), b.dataset.resolver)));
+  } catch (error) {
+    list.innerHTML = `<li class="labels-empty">${escapeHtml(error.message)}</li>`;
+  }
+}
+
+async function resolveQuarantine(entryId, estado) {
+  const liberar = estado === "aprobado";
+  const result = await askDialog({
+    title: liberar ? "Liberar el lote" : "Rechazar el lote",
+    text: liberar ? "El lote pasa a inventario (queda como aprobado)." : "El lote no entra al inventario (queda como rechazado).",
+    input: { label: liberar ? "¿Por qué se libera? *" : "¿Por qué se rechaza? *", placeholder: liberar ? "Ej.: análisis de laboratorio conforme" : "Ej.: humedad confirmada en el análisis", minLength: 3, minLengthMessage: "Escribe el motivo." },
+    actions: [
+      { label: liberar ? "Liberar" : "Rechazar", value: "ok", requiresInput: true },
+      { label: "Cancelar", value: "cancel", variant: "link" },
+    ],
+  });
+  if (result.value !== "ok") return;
+  try {
+    const response = await apiFetch(`/api/admin/ingresos/${entryId}/calidad`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ estado, motivo: result.text }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "No se pudo guardar la decisión");
+    notify(data.message, "ok");
+    await loadAdminSummary();
+    await loadEntries();
+  } catch (error) {
+    notify(error.message, "error");
+  }
+}
+
+// P25: versión del catálogo, avisos de calidad y últimas cargas (solo administrador).
+const CATALOG_ESTADOS = { aplicado: ["ok", "Aplicado"], parcial: ["warn", "Cargado en parte"], rechazado: ["error", "Rechazado"] };
+async function loadCatalogInfo() {
+  const box = document.getElementById("catalogInfo");
+  if (!box) return;
+  try {
+    const response = await apiFetch("/api/admin/catalogo");
+    const c = await response.json();
+    if (!response.ok) throw new Error(c.detail || "No se pudo leer el catálogo");
+    const e = escapeHtml;
+    const av = c.avisos || {};
+    const [tono, texto] = CATALOG_ESTADOS[c.estado] || ["info", c.estado || "—"];
+    const lista = (items, fmt) => items && items.length ? `<ul>${items.map((x) => `<li>${fmt(x)}</li>`).join("")}</ul>` : "";
+    const aviso = (titulo, items, fmt, ayuda) => items && items.length
+      ? `<details class="catalog-warning"><summary>${e(titulo)}: <strong>${items.length}</strong></summary><p class="panel-help">${e(ayuda)}</p>${lista(items, fmt)}</details>` : "";
+    const rechazo = c.ultimo_rechazo || "";
+    box.innerHTML = `
+      <p><strong>Versión ${e(c.version || "—")}</strong> · ${e(fmtNum(c.filas || 0))} productos · <span class="catalog-state catalog-${e(tono)}">${e(texto)}</span></p>
+      <p class="panel-help">Cargada el ${e((c.cargado_at || "").replace("T", " ").slice(0, 16))}${c.fuente ? ` · fuente: ${e(c.fuente)}` : ""}</p>
+      ${rechazo ? `<p class="catalog-reject">${e(rechazo)}</p>` : ""}
+      ${aviso("Código de barras con dígito inválido", av.digito_invalido, (x) => `${e(x.codigo)} ${e(x.nombre)} · ${e(x.codigo_barra)} (el último dígito debería ser ${e(x.digito_esperado)})`, "Al escanear la etiqueta real no se van a encontrar. Hay que corregir el código en el Libro11 con Cyrano.")}
+      ${aviso("Código de barras en productos distintos", av.barras_repetidas, (x) => `${e(x.codigo_barra)}: ${e(x.productos.join(" | "))}`, "Al escanearlo, la app pide elegir el producto. Hay que confirmar con Cyrano cuál es el correcto.")}
+      ${aviso("Código con dos nombres", av.codigos_con_dos_nombres, (x) => `${e(x.codigo)}: ${e(x.nombres.join(" | "))}`, "El mismo código SAP aparece con nombres distintos en el Libro11.")}
+      ${c.codigos_total ? `<p class="panel-help">Con proveedor (de las compras en SAP): ${e(fmtNum(c.codigos_con_proveedor))} de ${e(fmtNum(c.codigos_total))} códigos. Los demás dicen «Sin proveedor registrado».</p>` : ""}
+      ${av.nombres_limpiados ? `<p class="panel-help">Se limpiaron espacios sobrantes en ${e(av.nombres_limpiados)} nombre(s).</p>` : ""}
+    `;
+  } catch (error) {
+    box.textContent = error.message;
+  }
 }
 
 // P22: eventos de la auditoría para el administrador.
-const AUDIT_ACCIONES = { alta: "registró", anulacion: "anuló", apertura: "abrió la recepción", inicio_descarga: "marcó el inicio de descarga", cierre: "cerró la recepción" };
+const AUDIT_ACCIONES = { alta: "registró", anulacion: "anuló", apertura: "abrió la recepción", inicio_descarga: "marcó el inicio de descarga", cierre: "cerró la recepción", liberacion: "liberó de cuarentena", rechazo_cuarentena: "rechazó tras cuarentena" };
 async function loadAuditList() {
   const list = document.getElementById("auditList");
   if (!list) return;
@@ -1853,9 +2027,11 @@ async function loadAuditList() {
 
 async function refreshAdminData() {
   try {
-    const response = await apiFetch("/api/admin/reload", { method: "POST" });
+    // P25 / T22: la recarga dice si aplicó el catálogo nuevo o por qué no.
+    const response = await withBusy(elements.refreshAdminButton, "Recargando…", () => apiFetch("/api/admin/reload", { method: "POST" }));
     const data = await response.json();
-    notify(data.message || data.detail, response.ok ? "ok" : "error");
+    const tono = !response.ok || data.resultado === "rechazado" ? "error" : data.resultado === "parcial" ? "warn" : data.resultado === "sin cambios" ? "info" : "ok";
+    notify(data.message || data.detail, tono, { persist: tono === "error" || tono === "warn" });
   } catch (error) {
     notify(error.message, "error");
     return;
@@ -1877,48 +2053,96 @@ function escapeHtml(text) {
 
 // ---------- Impresión ZPL en la Zebra ZD230 ----------
 
-// Muestra en la UI la IP/puerto configurados en el backend (variables de entorno).
+// P13: la IP de la impresora solo la ve el administrador (en «Administración»).
 async function loadPrinterConfig() {
+  if (!state.isAdmin) return;
   try {
     const response = await apiFetch("/api/print/config");
     if (!response.ok) return;
     const cfg = await response.json();
-    elements.printerConfig.textContent = `Impresora: ${cfg.ip}:${cfg.port}`;
+    elements.printerConfig.textContent = `IP ${cfg.ip}, puerto ${cfg.port}. Se cambia con las variables ZEBRA_IP y ZEBRA_PORT del servidor.`;
   } catch (error) {
     /* silencioso: la config es informativa */
   }
 }
 
-// Imprime la etiqueta de una entrada/lote. Usa la cantidad y el modo prueba del panel.
-async function printLabel(entryId) {
-  const cantidad = Math.max(1, Number(elements.printCantidad.value) || 1);
-  const testMode = elements.printTestMode.checked;
-  try {
-    const response = await apiFetch("/api/print/label", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ entry_id: entryId, cantidad, test_mode: testMode }),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.detail || "No se pudo imprimir la etiqueta");
-    }
+// P13: ingresos que se pueden etiquetar = confirmados y vigentes de la sesión.
+function labelableEntries() {
+  // P16: un lote rechazado no entra a la bodega, así que no lleva etiqueta.
+  return state.entries.filter((entry) => String(entry.id).length <= 8 && entry.estado_registro !== "anulado"
+    && (entry.estado_qc || "").toLowerCase() !== "rechazado");
+}
 
-    if (data.test_mode) {
-      // Modo prueba: no se envió nada a la impresora; mostramos el ZPL para revisarlo.
-      elements.zplPreview.classList.remove("hidden");
-      elements.zplPreview.innerHTML =
-        `<p><strong>Modo prueba</strong> — ZPL de ${data.cantidad} etiqueta(s). ` +
-        `Pégalo en labelary.com para previsualizar (no se envió a la impresora).</p>` +
-        `<pre>${escapeHtml(data.zpl)}</pre>`;
-      showMessage(elements.loginMessage, "ZPL generado en modo prueba (no se imprimió).", false);
-    } else {
-      elements.zplPreview.classList.add("hidden");
-      showMessage(elements.loginMessage, data.message || "Etiqueta enviada a la impresora.", false);
-    }
-  } catch (error) {
-    showMessage(elements.loginMessage, error.message, true);
+// Una etiqueta por bulto: se propone la cantidad recibida (redondeada hacia arriba), hasta 50.
+function suggestedLabels(entry) {
+  return Math.min(50, Math.max(1, Math.ceil(Number(entry.cantidad_ingresada) || 1)));
+}
+
+function renderLabels() {
+  const list = elements.labelsList;
+  if (!list) return;
+  const entries = labelableEntries();
+  if (!entries.length) {
+    list.innerHTML = '<li class="labels-empty">Todavía no hay productos confirmados en esta sesión. Confírmalos en «Registrados» y aquí aparecen para imprimir su etiqueta.</li>';
+    return;
   }
+  list.innerHTML = entries.map((entry) => {
+    const id = escapeHtml(entry.id);
+    const sinBarra = entry.codigo_barra ? "" : '<span class="label-nobar">Sin código de barras</span>';
+    return `
+      <li class="label-item">
+        <div class="label-info">
+          <strong>${escapeHtml(formatProducto(entry.codigo_cyrano, entry.nombre_producto))}</strong>
+          <span>Lote ${escapeHtml(entry.lote || "—")} · vence ${escapeHtml(entry.fecha_caducidad || "—")} · ${fmtNum(entry.cantidad_ingresada)} ${escapeHtml(pluralUnit(entry.unidad_llega, entry.cantidad_ingresada))}</span>
+          ${sinBarra}
+        </div>
+        <div class="label-actions">
+          <label for="labelQty-${id}">Etiquetas</label>
+          <input id="labelQty-${id}" type="number" inputmode="numeric" min="1" max="50" step="1" value="${suggestedLabels(entry)}" />
+          <button type="button" class="print-button" data-print="${id}">${ICONS.print} Imprimir</button>
+        </div>
+      </li>`;
+  }).join("");
+  list.querySelectorAll("[data-print]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const input = document.getElementById(`labelQty-${button.dataset.print}`);
+      printLabel(Number(button.dataset.print), input, button);
+    });
+  });
+}
+
+// Imprime las etiquetas de un ingreso en la Zebra.
+async function printLabel(entryId, qtyInput, button) {
+  const cantidad = Number(qtyInput?.value);
+  if (!Number.isInteger(cantidad) || cantidad < 1 || cantidad > 50) {
+    markInvalid(qtyInput, "Escribe cuántas etiquetas: un número entero de 1 a 50.");
+    return;
+  }
+  clearInvalid(qtyInput);
+  const testMode = Boolean(state.isAdmin && elements.printTestMode?.checked);
+  await withBusy(button, "Imprimiendo…", async () => {
+    try {
+      const response = await apiFetch("/api/print/label", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entry_id: entryId, cantidad, test_mode: testMode }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "No se pudo imprimir la etiqueta.");
+      if (data.test_mode) {
+        elements.zplPreview.classList.remove("hidden");
+        elements.zplPreview.innerHTML =
+          `<p><strong>Modo prueba (solo administrador)</strong>: ZPL de ${data.cantidad} etiqueta(s); no se envió a la impresora. ` +
+          `Se puede revisar en labelary.com.</p><pre>${escapeHtml(data.zpl)}</pre>`;
+        notify("ZPL generado en modo prueba; no se imprimió.", "info");
+      } else {
+        elements.zplPreview.classList.add("hidden");
+        notify(data.message || "Etiquetas enviadas a la impresora.", "ok");
+      }
+    } catch (error) {
+      notify(error.message, "error", { persist: true });
+    }
+  });
 }
 
 // ---------- Escáner HID del EDA52 ----------
@@ -1941,7 +2165,7 @@ async function logout() {
     const choice = await askDialog({
       title: `Tienes ${pending.length} ingreso(s) sin confirmar`,
       text: lost
-        ? `${lost} no se pudieron guardar en el servidor y se perderán si sales. Confírmalos antes de salir.`
+        ? `${lost} no se pudieron guardar por falta de conexión y se perderán si sales. Confírmalos antes de salir.`
         : "Quedan guardados y vuelven a aparecer cuando entres otra vez con tu PIN. Lo mejor es confirmarlos antes de salir.",
       actions: [
         { label: "Ver pendientes", value: "ver" },
@@ -2062,6 +2286,10 @@ function attachEvents() {
       select.value = button.dataset.estado;
       select.dispatchEvent(new Event("change"));
       clearInvalid(elements.scannerEstadoGroup);
+      // P16: si pide motivo, se baja hasta el cuadro para que no quede tapado por la barra de Guardar.
+      if (button.dataset.estado !== QC_ESTADO_CONFIRMABLE) {
+        window.setTimeout(() => qcEl("scanner", "MotivoBox").scrollIntoView({ behavior: "smooth", block: "end" }), 50);
+      }
     });
   });
   // Enter pasa al siguiente campo. Si el escáner dispara sobre cantidad o lote (el operador
@@ -2107,7 +2335,16 @@ function attachEvents() {
   elements.closePreviewButton.addEventListener("click", closePreview);
   elements.bulkButton.addEventListener("click", bulkSave);
   elements.adminUserFilter.addEventListener("change", loadAdminSummary);
+  setupFieldHelp(); // P12
   elements.refreshAdminButton.addEventListener("click", refreshAdminData);
+  // P16: los atajos de motivo llenan el campo (se puede seguir escribiendo).
+  document.querySelectorAll("#scannerMotivoChips .chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const input = document.getElementById("scannerMotivoQc");
+      input.value = chip.dataset.motivo;
+      clearInvalid(input);
+    });
+  });
   elements.adminUserFilter.addEventListener("change", loadAdminSummary);
   document.querySelectorAll(".tab").forEach((button) => {
     // Al abrir la pantalla de escaneo, showTab enfoca el campo para el escáner HID.

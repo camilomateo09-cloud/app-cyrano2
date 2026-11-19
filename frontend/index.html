@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cyrano - Recepción de materia prima</title>
-    <link rel="stylesheet" href="/styles.css?v=20261117-libro11" />
+    <link rel="stylesheet" href="/styles.css?v=20261118-p10" />
     <!-- P14: librería de códigos de barras guardada en la app (antes se descargaba de internet). -->
     <script src="/vendor/JsBarcode.all.min.js"></script>
   </head>
@@ -53,9 +53,9 @@
         <h2>Ingreso de operador</h2>
         <!-- P24: usuario + PIN de 6 números (el PIN se guarda con hash en el servidor). -->
         <form id="loginForm" novalidate>
-          <label for="usuario">Usuario</label>
+          <label for="usuario">Usuario *</label>
           <input id="usuario" type="text" autocomplete="username" autocapitalize="words" spellcheck="false" placeholder="Tu nombre, ej. Jose" maxlength="60" />
-          <label for="clave">PIN</label>
+          <label for="clave">PIN *</label>
           <input id="clave" type="password" inputmode="numeric" autocomplete="current-password" placeholder="6 números" maxlength="64" />
           <button id="loginButton" type="submit">Entrar</button>
         </form>
@@ -67,8 +67,9 @@
         <section id="receptionCard" class="card reception-card">
           <div id="receptionNew">
             <h2>Nueva recepción</h2>
+            <p class="required-note">Los campos con * son obligatorios.</p>
             <label for="recProveedor">Proveedor *</label>
-            <input id="recProveedor" type="text" list="recProveedores" autocomplete="off"
+            <input id="recProveedor" type="text" list="recProveedores" autocomplete="off" aria-required="true"
                    placeholder="Escribe para buscar el proveedor" />
             <datalist id="recProveedores"></datalist>
             <label for="recDocNumero">Documento *</label>
@@ -77,10 +78,10 @@
                 <option value="factura">Factura</option>
                 <option value="guia">Guía de remisión</option>
               </select>
-              <input id="recDocNumero" type="text" placeholder="Número" autocomplete="off" />
+              <input id="recDocNumero" type="text" placeholder="Número" autocomplete="off" aria-required="true" />
             </div>
             <label for="recLlegada">Hora de llegada del camión *</label>
-            <input id="recLlegada" type="time" />
+            <input id="recLlegada" type="time" aria-required="true" />
             <button id="openReceptionButton" type="button">Abrir recepción</button>
           </div>
 
@@ -108,6 +109,7 @@
         <nav class="tabs" aria-label="Secciones">
           <button class="tab active" data-target="scannerPanel">Recibir</button>
           <button class="tab" data-target="entriesPanel">Registrados</button>
+          <button class="tab" data-target="labelsPanel">Etiquetas</button>
           <button class="tab hidden" id="adminTab" data-target="adminPanel">Administración</button>
         </nav>
 
@@ -126,35 +128,50 @@
           <div id="scannerResult" class="result-card hidden"></div>
 
           <div id="scannerActions" class="product-form hidden">
+            <p class="required-note">* obligatorio · toca un campo para ver una ayuda corta.</p>
             <div class="form-grid">
               <div>
                 <!-- P05: cantidad vacía y obligatoria, con la unidad al lado y la conversión en vivo. -->
                 <label for="scannerQty" id="scannerQtyLabel">Cantidad *</label>
                 <div class="qty-row">
-                  <input id="scannerQty" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0" />
+                  <input id="scannerQty" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0" aria-required="true" />
                   <span id="scannerQtyUnit" class="qty-unit"></span>
                 </div>
               </div>
               <div>
                 <label for="scannerLote">Lote *</label>
-                <input id="scannerLote" class="lote-input" type="text" maxlength="30" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="Lote" />
+                <input id="scannerLote" class="lote-input" type="text" maxlength="30" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="Lote" aria-required="true" />
               </div>
             </div>
             <p id="scannerConversion" class="conversion-line" aria-live="polite"></p>
             <label for="scannerCaducidad">Caducidad *</label>
-            <input id="scannerCaducidad" type="date" />
+            <input id="scannerCaducidad" type="date" aria-required="true" />
             <p id="scannerCadHint" class="field-hint" aria-live="polite"></p>
 
             <!-- Control de calidad ligado al lote: estado obligatorio en un toque; el resto, opcional y plegado. -->
             <div class="qc-section">
               <div class="qc-header">
                 <span class="field-label">Calidad *</span>
-                <span id="scannerSemaforo" class="semaforo semaforo-vacio" title="Estado QC"></span>
+                <span id="scannerSemaforo" class="semaforo semaforo-vacio" title="Estado de calidad"></span>
               </div>
               <div id="scannerEstadoGroup" class="segmented" role="radiogroup" aria-label="Estado de calidad" tabindex="-1">
                 <button type="button" class="seg seg-aprobado" data-estado="aprobado" role="radio" aria-checked="false">Aprobado</button>
                 <button type="button" class="seg seg-cuarentena" data-estado="cuarentena" role="radio" aria-checked="false">Cuarentena</button>
                 <button type="button" class="seg seg-rechazado" data-estado="rechazado" role="radio" aria-checked="false">Rechazado</button>
+              </div>
+              <!-- P16: cuarentena y rechazo se registran con motivo; se avisa qué significa cada uno. -->
+              <div id="scannerMotivoBox" class="qc-motivo hidden">
+                <p id="scannerQcAviso" class="qc-aviso" aria-live="polite"></p>
+                <label for="scannerMotivoQc" id="scannerMotivoLabel">Motivo *</label>
+                <div id="scannerMotivoChips" class="motivo-chips">
+                  <button type="button" class="chip" data-motivo="Empaque dañado">Empaque dañado</button>
+                  <button type="button" class="chip" data-motivo="Temperatura fuera de rango">Temperatura</button>
+                  <button type="button" class="chip" data-motivo="Humedad">Humedad</button>
+                  <button type="button" class="chip" data-motivo="Olor o aspecto raro">Olor o aspecto</button>
+                  <button type="button" class="chip" data-motivo="Sin documentos del proveedor">Sin documentos</button>
+                  <button type="button" class="chip" data-motivo="Vence muy pronto">Vence pronto</button>
+                </div>
+                <input id="scannerMotivoQc" type="text" maxlength="300" autocomplete="off" placeholder="Elige arriba o escribe el motivo" aria-required="true" />
               </div>
               <select id="scannerEstadoQc" class="qc-estado sr-only" tabindex="-1" aria-hidden="true">
                 <option value="">Selecciona estado</option>
@@ -164,8 +181,8 @@
               </select>
               <details class="qc-details">
                 <summary>Detalles de calidad (opcional)</summary>
-                <label for="scannerResponsableQc">Responsable</label>
-                <input id="scannerResponsableQc" type="text" placeholder="Si se deja vacío, quien registra" />
+                <label for="scannerResponsableQc">Responsable de calidad</label>
+                <input id="scannerResponsableQc" type="text" placeholder="Quien revisó el producto" />
                 <div class="qc-checks">
                   <label class="checkbox-row"><input id="scannerEmpaqueOk" type="checkbox" /> Empaque OK</label>
                   <label class="checkbox-row"><input id="scannerSinHumedad" type="checkbox" /> Sin humedad</label>
@@ -226,31 +243,6 @@
             </table>
           </div>
 
-          <details class="tools-box">
-            <summary>Etiquetas</summary>
-          <div class="entry-actions">
-            <button id="printLabelsButton">Imprimir etiquetas</button>
-            <button id="previewLabelsButton">Previsualizar A4</button>
-            <button id="closePreviewButton" class="secondary hidden">Cerrar vista previa</button>
-          </div>
-          <div id="labelPreviewContainer" class="preview-container hidden"></div>
-
-          <!-- Impresión ZPL en la Zebra ZD230. La cantidad y el modo prueba aplican
-               al botón "Imprimir etiqueta" de cada fila. -->
-          <div class="print-controls">
-            <div class="print-controls-row">
-              <label for="printCantidad">Cantidad de etiquetas</label>
-              <input id="printCantidad" type="number" min="1" step="1" value="1" />
-            </div>
-            <label class="checkbox-row">
-              <input id="printTestMode" type="checkbox" />
-              Modo prueba (mostrar ZPL sin enviar a la impresora)
-            </label>
-            <span id="printerConfig" class="printer-config"></span>
-          </div>
-          <div id="zplPreview" class="result-card hidden"></div>
-
-          </details>
           <!-- P03: descarga de recepciones y productos para los KPI 1, 1b y 2. -->
           <div class="export-box">
             <h3>Exportar a Excel</h3>
@@ -269,16 +261,45 @@
           </div>
         </section>
 
+        <!-- P13: la impresión de etiquetas va en su propia pestaña; el operador no ve IP ni ZPL. -->
+        <section id="labelsPanel" class="panel">
+          <h2 class="panel-title">Etiquetas</h2>
+          <p class="panel-help">Imprime en la Zebra una etiqueta por bulto. Solo aparecen los productos ya confirmados de esta sesión.</p>
+          <ul id="labelsList" class="labels-list"></ul>
+          <div id="zplPreview" class="result-card hidden"></div>
+          <div class="tools-box labels-a4">
+            <h3>Hoja A4 para productos sin código de barras</h3>
+            <p class="panel-help">Para pegar en los bultos que llegan sin código de barras del proveedor.</p>
+            <div class="entry-actions">
+              <button id="previewLabelsButton" type="button" class="secondary">Ver hoja</button>
+              <button id="printLabelsButton" type="button">Imprimir hoja A4</button>
+              <button id="closePreviewButton" type="button" class="secondary hidden">Cerrar vista</button>
+            </div>
+            <div id="labelPreviewContainer" class="preview-container hidden"></div>
+          </div>
+        </section>
+
         <section id="adminPanel" class="panel">
           <h2>Panel de administración</h2>
-          <p id="adminIntro">Camilo puede revisar el estado del backend y los datos cargados.</p>
+          <p id="adminIntro">Aquí se revisa lo registrado, el catálogo, los lotes en cuarentena y la impresora.</p>
           <div class="admin-filters">
             <select id="adminUserFilter">
               <option value="">Todos los usuarios</option>
             </select>
-            <button id="refreshAdminButton">Recargar datos del backend</button>
+            <button id="refreshAdminButton">Recargar catálogo y usuarios</button>
           </div>
           <div id="adminSummary" class="result-card"></div>
+          <!-- P16: lotes en cuarentena, para liberarlos o rechazarlos con motivo. -->
+          <div class="admin-cuarentena">
+            <h3>Lotes en cuarentena</h3>
+            <ul id="quarantineList" class="labels-list"></ul>
+          </div>
+          <!-- P13: datos técnicos de la impresora, solo para el administrador. -->
+          <div class="admin-printer">
+            <h3>Impresora Zebra</h3>
+            <p id="printerConfig" class="printer-config"></p>
+            <label class="checkbox-row"><input id="printTestMode" type="checkbox" /> Modo prueba: en «Etiquetas» se muestra el ZPL en vez de imprimir</label>
+          </div>
         </section>
       </section>
     </main>
@@ -299,6 +320,6 @@
       <div id="appDialogActions" class="dialog-actions"></div>
     </dialog>
 
-    <script src="/app.js?v=20261117-libro11"></script>
+    <script src="/app.js?v=20261118-p10"></script>
   </body>
 </html>

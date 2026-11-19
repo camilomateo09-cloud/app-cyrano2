@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from backend.catalogo import digito_valido
 from backend.claves import HASH_RELLENO, INTENTOS_MAXIMOS, MINUTOS_BLOQUEO, verificar_pin
 from backend.database import get_connection, init_db
 from backend.gs1 import gtins_equivalentes, leer_gs1
@@ -146,6 +147,7 @@ class EntryPayload(BaseModel):
     estado_qc: str
     responsable_qc: str | None = None
     observaciones_qc: str | None = None
+    motivo_qc: str | None = Field(default=None, max_length=300)  # P16: obligatorio si no es aprobado
     empaque_ok: bool = False
     sin_humedad: bool = False
     temperatura_ok: bool = False
@@ -182,33 +184,37 @@ class AnularPayload(BaseModel):
     session_id: str | None = None
 
 
+class ResolverCuarentenaPayload(BaseModel):
+    # P16: liberar (pasa a aprobado) o rechazar un lote que quedó en cuarentena.
+    estado: str
+    motivo: str = Field(max_length=300)
+    session_id: str | None = None
+
+
 class SesionPayload(BaseModel):
     session_id: str | None = None  # ya no se usa: la sesión viene en la cabecera
 
 
 class PrintLabelPayload(BaseModel):
     entry_id: int
-    cantidad: int = 1
-    test_mode: bool = False  # True: devuelve el ZPL sin enviarlo a la impresora
+    # P13: una etiqueta por bulto; tope de 50 por vez para no vaciar el rollo por error.
+    cantidad: int = Field(default=1, ge=1, le=50)
+    test_mode: bool = False  # True: devuelve el ZPL sin enviarlo (solo administrador)
 
 
 def validar_qc(payload: EntryPayload) -> str:
-    """Valida el estado_qc y aplica la regla: solo se confirma un lote APROBADO.
+    """Valida el estado de calidad (obligatorio).
 
-    Devuelve el estado normalizado. Lanza 422 si el estado es inválido o si el lote
-    no puede confirmarse por estar rechazado o en cuarentena (con el motivo).
+    P16: antes solo se podía confirmar un lote APROBADO y los demás había que quitarlos de
+    la lista (se perdía el registro). Ahora cuarentena y rechazado también se registran,
+    con motivo obligatorio, y no pasan a inventario.
     """
     estado = (payload.estado_qc or "").strip().lower()
     if estado not in ESTADOS_QC:
         raise HTTPException(status_code=422, detail="El estado de control de calidad es obligatorio")
-    if estado != ESTADO_QC_CONFIRMABLE:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"Lote {payload.lote or ''} bloqueado: el control de calidad está en "
-                f"'{estado}'. Solo se puede confirmar un lote APROBADO."
-            ),
-        )
+    if estado != ESTADO_QC_CONFIRMABLE and len((payload.motivo_qc or "").strip()) < 3:
+        que = "de la cuarentena" if estado == "cuarentena" else "del rechazo"
+        raise HTTPException(status_code=422, detail=f"Lote {payload.lote or ''}: falta el motivo {que}.")
     return estado
 
 
@@ -232,8 +238,8 @@ _INSERT_INGRESO_SQL = """
         cantidad_convertida, unidad_planta, codigo_barra, lote, fecha_caducidad,
         estado_qc, responsable_qc, observaciones_qc, empaque_ok, sin_humedad,
         temperatura_ok, aspecto_olor_ok, documentacion_proveedor_ok, temperatura_recepcion,
-        created_at, session_id, usuario_nombre, recepcion_id, linea_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        created_at, session_id, usuario_nombre, recepcion_id, motivo_qc, linea_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -270,6 +276,7 @@ def _insert_ingreso_params(
         payload.session_id or "",
         usuario_nombre,
         payload.recepcion_id,
+        (payload.motivo_qc or "").strip() if estado_qc != ESTADO_QC_CONFIRMABLE else None,
     )
 
 
@@ -466,8 +473,46 @@ def admin_summary(usuario: str | None = Query(default=None)) -> dict[str, Any]:
 
 @app.post("/api/admin/reload")
 def admin_reload() -> dict[str, Any]:
-    init_db()
-    return {"message": "Datos recargados correctamente"}
+    """P25 / T22: vuelve a leer los CSV. El catálogo se aplica o se dice por qué no."""
+    resultado = init_db()
+    if resultado.get("resultado") == "sin cambios":
+        conn = get_connection()
+        try:
+            fila = conn.execute("SELECT version, filas FROM catalogo_version WHERE id = 1").fetchone()
+        finally:
+            conn.close()
+        mensaje = f"El catálogo no cambió: sigue la versión {fila['version']} ({fila['filas']} productos)." if fila else "El catálogo no cambió."
+        return {"resultado": "sin cambios", "message": mensaje}
+    return {"resultado": resultado.get("resultado"), "message": resultado.get("mensaje", ""), "errores": resultado.get("errores", [])[:50]}
+
+
+@app.get("/api/admin/catalogo")
+def admin_catalogo() -> dict[str, Any]:
+    """P25: versión del catálogo cargado, avisos de calidad y últimas cargas."""
+    conn = get_connection()
+    try:
+        fila = conn.execute("SELECT * FROM catalogo_version WHERE id = 1").fetchone()
+        cargas = conn.execute("SELECT fecha, version, resultado, filas, mensaje FROM catalogo_cargas ORDER BY id DESC LIMIT 5").fetchall()
+    finally:
+        conn.close()
+    if not fila:
+        return {"version": None, "avisos": {}, "cargas": []}
+    datos = dict(fila)
+    # Si la última recarga se rechazó, se avisa aparte (el catálogo en uso sigue siendo el anterior).
+    datos["ultimo_rechazo"] = fila["mensaje"] if fila["huella_rechazada"] else None
+    datos.pop("huella", None)
+    datos.pop("huella_rechazada", None)
+    datos["avisos"] = json.loads(datos.get("avisos") or "{}")
+    datos["cargas"] = [dict(c) for c in cargas]
+    conn = get_connection()
+    try:
+        datos["codigos_total"] = conn.execute("SELECT COUNT(DISTINCT codigo_cyrano) FROM productos").fetchone()[0]
+        datos["codigos_con_proveedor"] = conn.execute(
+            "SELECT COUNT(DISTINCT codigo_cyrano) FROM productos WHERE codigo_cyrano IN (SELECT codigo FROM producto_proveedor)"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    return datos
 
 
 @app.get("/api/providers")
@@ -487,6 +532,43 @@ def _normalizar(texto: Any) -> str:
     base = unicodedata.normalize("NFKD", str(texto))
     sin_acentos = "".join(c for c in base if not unicodedata.combining(c))
     return sin_acentos.casefold().strip()
+
+
+# ---------- P10 · Proveedor por artículo ----------
+
+def _normalizar_nombre(nombre: str | None) -> str:
+    return " ".join((nombre or "").upper().split())
+
+
+def _proveedor_recepcion_abierta(conn: Any) -> str | None:
+    """Proveedor de la recepción abierta del usuario de la sesión (o None)."""
+    try:
+        usuario = sesion_actual()["usuario"]
+    except HTTPException:
+        return None
+    rec = conn.execute(
+        "SELECT proveedor FROM recepciones WHERE usuario_nombre = ? AND estado = 'abierta' ORDER BY id DESC LIMIT 1", (usuario,)
+    ).fetchone()
+    return rec["proveedor"] if rec else None
+
+
+def _marcar_proveedor(conn: Any, productos: list[dict[str, Any]], proveedor: str | None) -> None:
+    """Agrega a cada producto quién lo trae (hasta 3, por número de entradas) y si lo trae
+    el proveedor de la recepción abierta: True, False, o None si no hay datos de ese producto."""
+    codigos = sorted({p["codigo_cyrano"] for p in productos})
+    trae: dict[str, list[str]] = {}
+    if codigos:
+        marcas = ", ".join("?" for _ in codigos)
+        for fila in conn.execute(
+            f"SELECT codigo, proveedor FROM producto_proveedor WHERE codigo IN ({marcas}) ORDER BY entradas DESC, ultima_entrada DESC",
+            tuple(codigos),
+        ).fetchall():
+            trae.setdefault(fila["codigo"], []).append(fila["proveedor"])
+    objetivo = _normalizar_nombre(proveedor)
+    for p in productos:
+        lista = trae.get(p["codigo_cyrano"], [])
+        p["proveedores"] = lista[:3]
+        p["del_proveedor"] = (objetivo in {_normalizar_nombre(x) for x in lista}) if (lista and objetivo) else None
 
 
 @app.get("/api/search")
@@ -517,6 +599,13 @@ def search_all(q: str = Query(default="")) -> dict[str, Any]:
             item = dict(producto)
             item["type"] = "producto"
             resultados.append(item)
+    # P10: primero los que trae el proveedor de la recepción abierta.
+    conn = get_connection()
+    try:
+        _marcar_proveedor(conn, resultados, _proveedor_recepcion_abierta(conn))
+    finally:
+        conn.close()
+    resultados.sort(key=lambda item: 0 if item.get("del_proveedor") else 1)
 
     # Proveedores: coincidencia por nombre.
     for proveedor in proveedores:
@@ -586,10 +675,18 @@ def scan_product(code: str = Query(..., min_length=1, max_length=120)) -> dict[s
         if clave not in vistos:
             vistos.add(clave)
             productos.append(dict(row))
+    # P10: quién trae cada producto y si lo trae el proveedor de la recepción abierta.
+    conn = get_connection()
+    try:
+        proveedor_rec = _proveedor_recepcion_abierta(conn)
+        _marcar_proveedor(conn, productos, proveedor_rec)
+    finally:
+        conn.close()
     datos = None
     if gs1 and (gs1["lote"] or gs1["caducidad"]):
         datos = {k: gs1[k] for k in ("gtin", "lote", "caducidad", "caducidad_fuente")}
-    return {"productos": productos, "gs1": datos}
+    # P25: si no se encontró, decir si el código leído tiene el dígito GS1 mal (mala lectura).
+    return {"productos": productos, "gs1": datos, "digito_valido": digito_valido(codigo), "proveedor_recepcion": proveedor_rec}
 
 
 def _guardar_ingreso(conn: Any, item: EntryPayload) -> int | None:
@@ -627,6 +724,7 @@ def _guardar_ingreso(conn: Any, item: EntryPayload) -> int | None:
     auditar(conn, "ingreso", cur.lastrowid, "alta", {
         "producto": product["codigo_cyrano"], "cantidad": cantidad, "unidad": product["unidad_llega"],
         "lote": lote, "caducidad": fecha_caducidad, "calidad": estado_qc, "recepcion_id": item.recepcion_id,
+        "motivo_calidad": (item.motivo_qc or "").strip() if estado_qc != ESTADO_QC_CONFIRMABLE else None,
     })
     return cur.lastrowid
 
@@ -966,6 +1064,59 @@ def delete_entry(entry_id: int) -> dict[str, Any]:
     raise HTTPException(status_code=405, detail="Los ingresos confirmados no se borran: usa «Anular» con un motivo")
 
 
+@app.get("/api/admin/cuarentena")
+def admin_cuarentena() -> list[dict[str, Any]]:
+    """P16: lotes vigentes que siguen en cuarentena (para liberarlos o rechazarlos)."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT i.id, i.codigo_cyrano, i.nombre_producto, i.lote, i.fecha_caducidad, i.cantidad_ingresada,
+                   i.unidad_llega, i.motivo_qc, i.usuario_nombre, i.created_at, r.proveedor
+            FROM ingresos i LEFT JOIN recepciones r ON r.id = i.recepcion_id
+            WHERE i.estado_qc = 'cuarentena' AND i.estado_registro = 'vigente'
+            ORDER BY i.created_at
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/admin/ingresos/{entry_id}/calidad")
+def resolver_cuarentena(entry_id: int, payload: ResolverCuarentenaPayload) -> dict[str, Any]:
+    """P16: el administrador libera (aprobado) o rechaza un lote en cuarentena, con motivo."""
+    estado = (payload.estado or "").strip().lower()
+    motivo = " ".join((payload.motivo or "").split())
+    if estado not in ("aprobado", "rechazado"):
+        raise HTTPException(status_code=422, detail="Elige liberar (aprobado) o rechazar.")
+    if len(motivo) < 3:
+        raise HTTPException(status_code=422, detail="Escribe el motivo de la decisión.")
+    conn = get_connection()
+    try:
+        entry = conn.execute("SELECT * FROM ingresos WHERE id = ?", (entry_id,)).fetchone()
+        if not entry:
+            raise HTTPException(status_code=404, detail="Ingreso no encontrado")
+        if entry["estado_registro"] == "anulado":
+            raise HTTPException(status_code=409, detail="El ingreso está anulado.")
+        if entry["estado_qc"] != "cuarentena":
+            raise HTTPException(status_code=409, detail=f"El lote ya no está en cuarentena (está {entry['estado_qc']}).")
+        quien, cuando = sesion_actual()["usuario"], ahora_iso()
+        conn.execute(
+            "UPDATE ingresos SET estado_qc = ?, qc_resuelto_por = ?, qc_resuelto_at = ?, qc_resolucion = ? WHERE id = ?",
+            (estado, quien, cuando, motivo, entry_id),
+        )
+        auditar(conn, "ingreso", entry_id, "liberacion" if estado == "aprobado" else "rechazo_cuarentena", {
+            "producto": entry["codigo_cyrano"], "lote": entry["lote"], "motivo": motivo,
+            "motivo_cuarentena": entry["motivo_qc"],
+        })
+        conn.commit()
+    finally:
+        conn.close()
+    texto = "liberado: pasa a inventario" if estado == "aprobado" else "rechazado: no entra al inventario"
+    return {"id": entry_id, "estado_qc": estado, "message": f"Lote {entry['lote']} {texto}."}
+
+
 @app.post("/api/entries/{entry_id}/anular")
 def anular_ingreso(entry_id: int, payload: AnularPayload) -> dict[str, Any]:
     """P22 / D18 / T23: el ingreso queda en la base marcado como anulado, con motivo, usuario y hora."""
@@ -1007,15 +1158,28 @@ def ver_auditoria(limite: int = Query(default=100, ge=1, le=1000)) -> list[dict[
     return [{**dict(r), "detalle": json.loads(r["detalle"] or "{}")} for r in rows]
 
 
+def _es_admin() -> bool:
+    return sesion_actual().get("rol") == "administrador"
+
+
 @app.get("/api/print/config")
 def print_config() -> dict[str, Any]:
-    """Configuración actual de la impresora Zebra (para mostrarla en la UI)."""
+    """Configuración de la impresora Zebra. P13: solo el administrador ve la IP."""
+    if not _es_admin():
+        raise HTTPException(status_code=403, detail="Solo un administrador puede ver la configuración de la impresora.")
     return printer_info()
 
 
 @app.post("/api/print/label")
 def print_label(payload: PrintLabelPayload) -> dict[str, Any]:
-    """Genera el ZPL de una entrada/lote y lo imprime en la Zebra (o lo devuelve en modo prueba)."""
+    """Genera el ZPL de un ingreso y lo imprime en la Zebra.
+
+    P13: el operador no ve datos técnicos (IP, puerto, ZPL). El modo prueba, que devuelve
+    el ZPL sin imprimir, queda solo para el administrador.
+    """
+    admin = _es_admin()
+    if payload.test_mode and not admin:
+        raise HTTPException(status_code=403, detail="El modo prueba de etiquetas es solo para el administrador.")
     conn = get_connection()
     try:
         entry = conn.execute("SELECT * FROM ingresos WHERE id = ?", (payload.entry_id,)).fetchone()
@@ -1026,37 +1190,39 @@ def print_label(payload: PrintLabelPayload) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Ingreso no encontrado")
     if entry["estado_registro"] == "anulado":
         raise HTTPException(status_code=422, detail="El ingreso está anulado: no se imprime su etiqueta")
+    if entry["estado_qc"] == "rechazado":
+        raise HTTPException(status_code=422, detail="El lote está rechazado: no entra a la bodega y no lleva etiqueta")
 
-    cantidad = max(1, payload.cantidad)
+    cantidad = payload.cantidad
     zpl = build_label_zpl(
         codigo=entry["codigo_cyrano"],
         nombre=entry["nombre_producto"],
         lote=entry["lote"],
         fecha_caducidad=entry["fecha_caducidad"],
         cantidad=cantidad,
+        aviso="EN CUARENTENA - NO USAR" if entry["estado_qc"] == "cuarentena" else "",
     )
-
     info = printer_info()
 
-    # Modo prueba: no toca la impresora, solo devuelve el ZPL para verlo/pegarlo en Labelary.
     if payload.test_mode:
         return {"test_mode": True, "cantidad": cantidad, "printer": info, "zpl": zpl}
 
     try:
         send_zpl(zpl)
     except OSError as error:
-        raise HTTPException(
-            status_code=502,
-            detail=f"No se pudo conectar con la impresora Zebra en {info['ip']}:{info['port']} ({error})",
-        )
+        detalle = "No se pudo conectar con la impresora. Revisa que esté encendida y conectada a la red; si sigue igual, avisa al supervisor."
+        if admin:
+            detalle += f" (Impresora {info['ip']}:{info['port']}: {error})"
+        raise HTTPException(status_code=502, detail=detalle)
 
-    return {
+    respuesta: dict[str, Any] = {
         "test_mode": False,
         "cantidad": cantidad,
-        "printer": info,
-        "message": f"Etiqueta enviada ({cantidad}) a {info['ip']}:{info['port']}",
-        "zpl": zpl,
+        "message": f"Se enviaron {cantidad} etiqueta(s) a la impresora.",
     }
+    if admin:
+        respuesta["printer"] = info
+    return respuesta
 
 
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

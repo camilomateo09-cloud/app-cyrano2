@@ -42,6 +42,7 @@ def build_label_zpl(
     lote: str,
     fecha_caducidad: str,
     cantidad: int = 1,
+    aviso: str = "",
 ) -> str:
     """Genera el ZPL de una etiqueta: código de barras Code 128 + texto.
 
@@ -53,6 +54,11 @@ def build_label_zpl(
     lote_txt = _zpl_sanitize(lote)
     fecha_txt = _zpl_sanitize(fecha_caducidad)
     copias = max(1, int(cantidad or 1))
+    # P16: un lote en cuarentena lleva el aviso en la etiqueta, en negativo (blanco sobre negro).
+    aviso_txt = _zpl_sanitize(aviso)
+    # Franja a todo el ancho al pie de la etiqueta (y 345–400), texto centrado.
+    linea_aviso = (f"^FO20,345^GB772,56,56^FS^FO20,357^FB772,1,0,C^A0N,38,38^FR^FD{aviso_txt[:30]}^FS\n"
+                   if aviso_txt else "")
 
     # ^CI28 -> UTF-8 (acentos). ^BY define el módulo del código de barras.
     # ^BCN,100,Y,N,N -> Code 128, alto 100 pt, con línea de interpretación.
@@ -67,6 +73,7 @@ def build_label_zpl(
         f"^FO30,158^A0N,28,28^FDVence: {fecha_txt}^FS\n"
         "^FO30,200^BY3\n"
         f"^BCN,100,Y,N,N^FD{codigo_txt}^FS\n"
+        f"{linea_aviso}"
         f"^PQ{copias}\n"
         "^XZ\n"
     )

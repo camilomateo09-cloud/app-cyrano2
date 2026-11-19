@@ -1,0 +1,14 @@
+{
+  "version": "2026.11.18-2",
+  "fuente": "Libro11.xlsx (hoja Conversión)",
+  "fecha": "2026-11-18",
+  "filas": 1417,
+  "avisos": {
+    "digito_invalido": 6,
+    "barras_repetidas": 5,
+    "codigos_con_dos_nombres": 3
+  },
+  "proveedores": "MovCompras.xlsx (entradas de mercancía ago-2025 a sep-2026), solo nombres",
+  "aprobado_por": "",
+  "nota": "Diccionario y catálogo pendientes de aprobación por Cyrano."
+}

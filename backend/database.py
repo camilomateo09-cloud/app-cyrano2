@@ -6,6 +6,10 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+import json
+from datetime import datetime, timedelta, timezone
+
+from backend.catalogo import UNIDADES_LLEGADA, UNIDADES_PLANTA, leer_version, revisar_catalogo
 from backend.claves import es_hash, hash_pin
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -40,8 +44,8 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
-def init_db() -> None:
-    """Crea las tablas y carga datos iniciales desde los CSV si la base esta vacia."""
+def init_db() -> dict[str, Any]:
+    """Crea las tablas y carga los datos de los CSV. Devuelve el resultado de cargar el catálogo (P25)."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.executescript(
@@ -119,16 +123,18 @@ def init_db() -> None:
     ensure_reglas_base(cursor)
     ensure_roles(cursor)
     ensure_anulacion_y_auditoria(cursor)
+    ensure_cuarentena_y_rechazo(cursor)
 
     ensure_claves_seguras(cursor)
     sincronizar_usuarios(cursor)
     ensure_catalogo(cursor)
-    sincronizar_catalogo(cursor)
+    resultado_catalogo = sincronizar_catalogo(cursor)
     if cursor.execute("SELECT COUNT(*) FROM proveedores").fetchone()[0] == 0:
         load_proveedores(cursor)
 
     conn.commit()
     conn.close()
+    return resultado_catalogo
 
 
 def ensure_ingresos_session_column(cursor: sqlite3.Cursor) -> None:
@@ -278,6 +284,41 @@ def ensure_roles(cursor: sqlite3.Cursor) -> None:
         cursor.execute("UPDATE usuarios SET rol = 'administrador' WHERE lower(trim(nombre)) = 'camilo'")
 
 
+def ensure_cuarentena_y_rechazo(cursor: sqlite3.Cursor) -> None:
+    """P16: los lotes en cuarentena o rechazados se registran (con su motivo) sin pasar a
+    inventario. La cuarentena se resuelve después: se libera (pasa a aprobado) o se rechaza,
+    con quién, cuándo y por qué. Aprobado y rechazado son finales.
+    """
+    columns = {row[1] for row in cursor.execute("PRAGMA table_info(ingresos)").fetchall()}
+    for nombre, definicion in {
+        "motivo_qc": "TEXT",          # por qué quedó en cuarentena o se rechazó
+        "qc_resuelto_por": "TEXT",    # quién liberó o rechazó la cuarentena
+        "qc_resuelto_at": "TEXT",
+        "qc_resolucion": "TEXT",      # motivo de la liberación o del rechazo posterior
+    }.items():
+        if nombre not in columns:
+            cursor.execute(f"ALTER TABLE ingresos ADD COLUMN {nombre} {definicion}")
+    cursor.executescript(
+        """
+        DROP TRIGGER IF EXISTS tr_ingresos_motivo_qc;
+        CREATE TRIGGER tr_ingresos_motivo_qc BEFORE INSERT ON ingresos
+        BEGIN
+            SELECT RAISE(ABORT, 'cuarentena o rechazo exige motivo')
+            WHERE NEW.estado_qc IN ('cuarentena', 'rechazado') AND length(trim(coalesce(NEW.motivo_qc, ''))) < 3;
+        END;
+        DROP TRIGGER IF EXISTS tr_ingresos_qc_transicion;
+        CREATE TRIGGER tr_ingresos_qc_transicion BEFORE UPDATE OF estado_qc ON ingresos
+        WHEN OLD.estado_qc <> NEW.estado_qc
+        BEGIN
+            SELECT RAISE(ABORT, 'solo un lote en cuarentena cambia de estado (a aprobado o rechazado)')
+            WHERE NOT (OLD.estado_qc = 'cuarentena' AND NEW.estado_qc IN ('aprobado', 'rechazado'));
+            SELECT RAISE(ABORT, 'resolver la cuarentena exige quién y motivo')
+            WHERE length(trim(coalesce(NEW.qc_resuelto_por, ''))) = 0 OR length(trim(coalesce(NEW.qc_resolucion, ''))) < 3;
+        END;
+        """
+    )
+
+
 def ensure_anulacion_y_auditoria(cursor: sqlite3.Cursor) -> None:
     """P22 / D18 (ALCOA «original»): un ingreso confirmado no se borra, se anula con
     motivo, usuario y hora; y cada alta, anulación y evento de la recepción queda en
@@ -339,9 +380,7 @@ def load_proveedores(cursor: sqlite3.Cursor) -> None:
 
 # ---------- P23 · Catálogo: código SAP, unidades en lista cerrada, sin productos de ejemplo ----------
 # Regla de conversión (D9): cantidad en unidad de planta = cantidad que llega × cantidad_por_caja × factor_conversion.
-# Catálogo Libro11 (nov-2026): se agregan lámina, balde, cubeta y gaveta.
-UNIDADES_LLEGADA = ("unidad", "paquete", "caja", "rollo", "saco", "caneca", "barril", "bulto", "lamina", "balde", "cubeta", "gaveta")
-UNIDADES_PLANTA = ("unid", "kg", "l", "paquete", "caja", "rollo")
+# Listas cerradas de unidades: viven en backend/catalogo.py (P25) y se importan arriba.
 PRODUCTOS_EJEMPLO = ("HAR035", "HAR036", "M22", "MAN012", "CHO040", "HUE001")  # no son de Cyrano
 
 
@@ -368,34 +407,122 @@ def ensure_catalogo(cursor: sqlite3.Cursor) -> None:
     """)
 
 
-def _huella_catalogo() -> str:
-    return hashlib.sha256((INSUMOS_DIR / "productos.csv").read_bytes()).hexdigest()
+def ruta_productos() -> Path:
+    # Las pruebas pueden usar otro CSV (variable CYRANO_PRODUCTOS_CSV).
+    return Path(os.getenv("CYRANO_PRODUCTOS_CSV") or INSUMOS_DIR / "productos.csv")
 
 
-def sincronizar_catalogo(cursor: sqlite3.Cursor) -> None:
-    """Carga el catálogo desde insumos/productos.csv y lo vuelve a cargar cuando el CSV cambia.
+def _ahora_ec() -> str:
+    return datetime.now(timezone(timedelta(hours=-5))).isoformat(timespec="seconds")
 
-    Desde el Libro11 (maestro de Cyrano) el catálogo se reemplaza entero: se guarda una huella
-    del CSV y, si cambió, se actualizan los productos por id, se agregan los nuevos y se quitan
-    los que ya no están (solo si no tienen ingresos; los que tienen ingresos se conservan para
-    no perder la trazabilidad).
-    """
+
+def _tablas_catalogo(cursor: sqlite3.Cursor) -> None:
     cursor.execute("CREATE TABLE IF NOT EXISTS catalogo_version (id INTEGER PRIMARY KEY CHECK (id = 1), huella TEXT NOT NULL, cargado_at TEXT NOT NULL)")
-    huella = _huella_catalogo()
-    fila = cursor.execute("SELECT huella FROM catalogo_version WHERE id = 1").fetchone()
-    if fila and fila[0] == huella and cursor.execute("SELECT COUNT(*) FROM productos").fetchone()[0]:
-        return
-    ids = load_productos(cursor)
-    marcas = ", ".join("?" for _ in ids)
+    columnas = {row[1] for row in cursor.execute("PRAGMA table_info(catalogo_version)").fetchall()}
+    for columna in ("version TEXT", "fuente TEXT", "filas INTEGER", "estado TEXT", "mensaje TEXT", "avisos TEXT", "huella_rechazada TEXT"):
+        if columna.split()[0] not in columnas:
+            cursor.execute(f"ALTER TABLE catalogo_version ADD COLUMN {columna}")
+    # Historial de cada intento de carga (aplicado, parcial o rechazado).
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS catalogo_cargas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fecha TEXT NOT NULL,
+            version TEXT,
+            huella TEXT NOT NULL,
+            resultado TEXT NOT NULL CHECK (resultado IN ('aplicado', 'parcial', 'rechazado')),
+            filas INTEGER,
+            mensaje TEXT
+        )
+        """
+    )
+
+
+def sincronizar_catalogo(cursor: sqlite3.Cursor) -> dict[str, Any]:
+    """P25 / T22: carga el catálogo de productos.csv cuando cambia, o avisa por qué no.
+
+    - Se guarda una huella del CSV; si no cambió, no se hace nada.
+    - Antes de aplicar, se revisa entero (backend/catalogo.py). Si tiene ERRORES y ya hay un
+      catálogo cargado, NO se aplica: se queda el anterior y se guarda el motivo. Si la base
+      está vacía (p. ej. arranque en Vercel), se cargan las filas sin error y queda «parcial».
+    - Los AVISOS (dígito GS1, barras repetidas, código con dos nombres) se guardan para el
+      administrador; esos productos sí se cargan.
+    - Se quitan los productos que ya no están, salvo los que tienen ingresos (trazabilidad).
+    """
+    _tablas_catalogo(cursor)
+    path = ruta_productos()
+    # P10: la huella incluye también la relación producto–proveedor (si cambia, se recarga).
+    archivo_pp = path.parent / "producto_proveedor.csv"
+    huella = hashlib.sha256(path.read_bytes() + (archivo_pp.read_bytes() if archivo_pp.exists() else b"")).hexdigest()
+    actual = cursor.execute("SELECT huella, huella_rechazada FROM catalogo_version WHERE id = 1").fetchone()
+    hay_productos = cursor.execute("SELECT COUNT(*) FROM productos").fetchone()[0] > 0
+    if hay_productos and actual and huella in (actual[0], actual[1]):
+        return {"resultado": "sin cambios"}
+
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        filas = list(csv.DictReader(handle))
+    revision = revisar_catalogo(filas)
+    version = leer_version(path)
+    numero = str(version.get("version", "sin versión"))
+    avisos = revision["avisos"]
+    errores = revision["errores"]
+    ahora = _ahora_ec()
+
+    if errores and hay_productos:
+        mensaje = (f"No se aplicó la versión {numero} del catálogo: tiene {len(errores)} error(es). Se sigue usando la anterior. "
+                   + " · ".join(errores[:5]) + (" · …" if len(errores) > 5 else ""))
+        cursor.execute("UPDATE catalogo_version SET huella_rechazada = ?, mensaje = ? WHERE id = 1", (huella, mensaje))
+        cursor.execute("INSERT INTO catalogo_cargas (fecha, version, huella, resultado, filas, mensaje) VALUES (?, ?, ?, 'rechazado', ?, ?)",
+                       (ahora, numero, huella, len(filas), mensaje))
+        return {"resultado": "rechazado", "mensaje": mensaje, "errores": errores}
+
+    validas = revision["filas_validas"]
+    ids = load_productos(cursor, validas)
+    cargar_producto_proveedor(cursor, archivo_pp)
+    marcas = ", ".join("?" for _ in ids) or "NULL"
     cursor.execute(
         f"DELETE FROM productos WHERE id NOT IN ({marcas}) AND id NOT IN (SELECT producto_id FROM ingresos WHERE producto_id IS NOT NULL)",
         tuple(ids),
     )
+    resultado = "parcial" if errores else "aplicado"
+    mensaje = (f"Versión {numero} cargada: {len(validas)} productos."
+               + (f" {len(errores)} fila(s) con error no se cargaron: " + " · ".join(errores[:5]) if errores else ""))
     cursor.execute(
-        "INSERT INTO catalogo_version (id, huella, cargado_at) VALUES (1, ?, datetime('now')) "
-        "ON CONFLICT(id) DO UPDATE SET huella = excluded.huella, cargado_at = excluded.cargado_at",
-        (huella,),
+        """
+        INSERT INTO catalogo_version (id, huella, cargado_at, version, fuente, filas, estado, mensaje, avisos, huella_rechazada)
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+        ON CONFLICT(id) DO UPDATE SET huella = excluded.huella, cargado_at = excluded.cargado_at, version = excluded.version,
+            fuente = excluded.fuente, filas = excluded.filas, estado = excluded.estado, mensaje = excluded.mensaje,
+            avisos = excluded.avisos, huella_rechazada = NULL
+        """,
+        (huella, ahora, numero, str(version.get("fuente", "")), len(validas), resultado, mensaje, json.dumps(avisos, ensure_ascii=False)),
     )
+    cursor.execute("INSERT INTO catalogo_cargas (fecha, version, huella, resultado, filas, mensaje) VALUES (?, ?, ?, ?, ?, ?)",
+                   (ahora, numero, huella, resultado, len(validas), mensaje))
+    return {"resultado": resultado, "mensaje": mensaje, "errores": errores}
+
+
+def cargar_producto_proveedor(cursor: sqlite3.Cursor, archivo: Path) -> int:
+    """P10: qué proveedores han traído cada artículo (de MovCompras; solo nombres)."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS producto_proveedor (
+            codigo TEXT NOT NULL,
+            proveedor TEXT NOT NULL,
+            entradas INTEGER NOT NULL DEFAULT 0,
+            ultima_entrada TEXT,
+            PRIMARY KEY (codigo, proveedor)
+        )
+        """
+    )
+    cursor.execute("DELETE FROM producto_proveedor")
+    if not archivo.exists():
+        return 0
+    with archivo.open("r", encoding="utf-8", newline="") as handle:
+        filas = [(f["codigo"].strip(), " ".join(f["proveedor"].split()), int(f["entradas"] or 0), f["ultima_entrada"] or None)
+                 for f in csv.DictReader(handle) if f.get("codigo") and f.get("proveedor")]
+    cursor.executemany("INSERT OR REPLACE INTO producto_proveedor VALUES (?, ?, ?, ?)", filas)
+    return len(filas)
 
 
 def ensure_claves_seguras(cursor: sqlite3.Cursor) -> None:
@@ -445,53 +572,53 @@ def sincronizar_usuarios(cursor: sqlite3.Cursor) -> None:
                 cursor.execute("UPDATE usuarios SET nombre = ?, rol = ? WHERE id = ?", (row["nombre"].strip(), rol, int(row["id"])))
 
 
-def load_productos(cursor: sqlite3.Cursor) -> list[int]:
-    """Carga (o actualiza por id) los productos de insumos/productos.csv; devuelve los ids."""
-    path = INSUMOS_DIR / "productos.csv"
+def load_productos(cursor: sqlite3.Cursor, filas: list[dict[str, Any]] | None = None) -> list[int]:
+    """Carga (o actualiza por id) productos; devuelve los ids. Sin filas, lee el CSV tal cual."""
+    if filas is None:
+        with ruta_productos().open("r", encoding="utf-8", newline="") as handle:
+            filas = list(csv.DictReader(handle))
     ids: list[int] = []
-    with path.open("r", encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle)
-        for row in reader:
-            ids.append(int(row["id"]))
-            cursor.execute(
-                """
-                INSERT INTO productos (
-                    id,
-                    codigo_cyrano,
-                    nombre_producto,
-                    codigo_barra,
-                    proveedor,
-                    unidad_llega,
-                    cantidad_asociada,
-                    unidad_planta,
-                    factor_conversion,
-                    cantidad_por_caja,
-                    codigo_sap,
-                    equivalencia_sap
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    codigo_cyrano = excluded.codigo_cyrano, nombre_producto = excluded.nombre_producto,
-                    codigo_barra = excluded.codigo_barra, proveedor = excluded.proveedor,
-                    unidad_llega = excluded.unidad_llega, cantidad_asociada = excluded.cantidad_asociada,
-                    unidad_planta = excluded.unidad_planta, factor_conversion = excluded.factor_conversion,
-                    cantidad_por_caja = excluded.cantidad_por_caja, codigo_sap = excluded.codigo_sap,
-                    equivalencia_sap = excluded.equivalencia_sap
-                """,
-                (
-                    int(row["id"]),
-                    row["codigo_cyrano"],
-                    row["nombre_producto"],
-                    row["codigo_barra"] or None,
-                    row["proveedor"],
-                    row["unidad_llega"].strip().lower(),
-                    float(row["cantidad_asociada"]),
-                    {"unidad": "unid"}.get(row["unidad_planta"].strip().lower(), row["unidad_planta"].strip().lower()),
-                    float(row["factor_conversion"]),
-                    float(row["cantidad_por_caja"]),
-                    (row.get("codigo_sap") or "").strip() or None,
-                    (row.get("equivalencia_sap") or "sin pareja").strip(),
-                ),
-            )
+    for row in filas:
+        ids.append(int(row["id"]))
+        cursor.execute(
+            """
+            INSERT INTO productos (
+                id,
+                codigo_cyrano,
+                nombre_producto,
+                codigo_barra,
+                proveedor,
+                unidad_llega,
+                cantidad_asociada,
+                unidad_planta,
+                factor_conversion,
+                cantidad_por_caja,
+                codigo_sap,
+                equivalencia_sap
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                codigo_cyrano = excluded.codigo_cyrano, nombre_producto = excluded.nombre_producto,
+                codigo_barra = excluded.codigo_barra, proveedor = excluded.proveedor,
+                unidad_llega = excluded.unidad_llega, cantidad_asociada = excluded.cantidad_asociada,
+                unidad_planta = excluded.unidad_planta, factor_conversion = excluded.factor_conversion,
+                cantidad_por_caja = excluded.cantidad_por_caja, codigo_sap = excluded.codigo_sap,
+                equivalencia_sap = excluded.equivalencia_sap
+            """,
+            (
+                int(row["id"]),
+                row["codigo_cyrano"],
+                row["nombre_producto"],
+                row["codigo_barra"] or None,
+                row["proveedor"],
+                row["unidad_llega"].strip().lower(),
+                float(row["cantidad_asociada"]),
+                {"unidad": "unid"}.get(row["unidad_planta"].strip().lower(), row["unidad_planta"].strip().lower()),
+                float(row["factor_conversion"]),
+                float(row["cantidad_por_caja"]),
+                (row.get("codigo_sap") or "").strip() or None,
+                (row.get("equivalencia_sap") or "sin pareja").strip(),
+            ),
+        )
     return ids
 
 
